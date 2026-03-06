@@ -1,0 +1,75 @@
+// Package event provides the core interfaces and data structures for the event-driven pub-sub system.
+// It abstracts the underlying message brokers and provides a consistent API for publishing and subscribing to events.
+package event
+
+import (
+	"context"
+	"time"
+)
+
+// Event defines the standard payload for all messages sent through the system.
+// It contains both the actual data payload and essential metadata for routing and diagnostics.
+type Event struct {
+	// EventId is a unique identifier for the event (typically a UUID).
+	EventId string `json:"eventId"`
+	// EventType is the name of the event (e.g., "user.created", "order.placed").
+	EventType string `json:"eventType"`
+	// EventTime is the UTC timestamp of when the event occurred.
+	EventTime time.Time `json:"eventTime"`
+	// Source identifies the service or system that originated the event.
+	Source string `json:"source"`
+	// Schema version or identifier used for routing and validation.
+	Schema string `json:"schema"`
+	// ResourceID is the ID of the primary resource associated with this event.
+	ResourceID string `json:"resourceId"`
+	// Data is the actual event payload. It must be JSON marshallable.
+	Data any `json:"data"`
+	// Metadata contains additional context like tracing headers, correlation IDs, or diagnostic info.
+	Metadata map[string]any `json:"metadata"`
+}
+
+// EventHandler is the callback triggered when a Subscriber receives an event.
+// Returning an error will trigger the Dead Letter Queue (DLQ) if configured.
+type EventHandler func(ctx context.Context, evt *Event) error
+
+// Publisher is responsible for routing and sending events to one or more destinations.
+// A typical implementation will determine the routing based on a Router and send via a Broker.
+//
+// Example:
+//
+//	pub := event.NewPublisher(router, brokers, nil)
+//	err := pub.Publish(ctx, &event.Event{ ... })
+type Publisher interface {
+	// Publish routes the event according to its schema and publishes it.
+	// It is generally non-blocking, enqueuing the event for background delivery.
+	Publish(ctx context.Context, evt *Event) error
+}
+
+// Subscriber is responsible for listening to events on designated topics.
+// It manages the lifecycle of broker connections and dispatches events to registered handlers.
+//
+// Example:
+//
+//	sub := event.NewSubscriber("userSchema", router, brokers)
+//	sub.Subscribe("user.created", func(ctx context.Context, evt *event.Event) error {
+//	    log.Printf("User created: %s", evt.ResourceID)
+//	    return nil
+//	})
+//	sub.Start(ctx)
+type Subscriber interface {
+	// Subscribe registers a callback for a specific event type based on the schema mapping.
+	Subscribe(eventType string, handler EventHandler) error
+
+	// Start begins listening and consuming messages. It blocks until the context is cancelled.
+	Start(ctx context.Context) error
+}
+
+// Broker abstracts the actual messaging backend (Kafka, RabbitMQ, Memory, etc.).
+// It handles the low-level transport of Event pointers.
+type Broker interface {
+	// Publish sends the event to the specified physical topic or queue.
+	Publish(ctx context.Context, topic string, evt *Event) error
+
+	// Consume registers a low-level handler for events on the specified topic.
+	Consume(ctx context.Context, topic string, handler func(evt *Event) error) error
+}
