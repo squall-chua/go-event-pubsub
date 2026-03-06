@@ -3,31 +3,26 @@ package event
 import (
 	"context"
 	"fmt"
+	"log"
 	"sync"
 	"time"
 
 	"github.com/cenkalti/backoff/v5"
 )
 
-// RetryConfig defines the parameters for the exponential backoff retry mechanism.
-// It controls the frequency and duration of retry attempts when publishing to a broker fails.
-type RetryConfig struct {
-	// InitialInterval is the duration to wait before the first retry.
-	InitialInterval time.Duration
-	// MaxInterval is the upper bound on the backoff duration.
-	MaxInterval time.Duration
-	// MaxElapsedTime is the total maximum time to keep retrying before giving up and sending to DLQ.
-	MaxElapsedTime time.Duration
-}
-
-// PublisherConfig defines the overall configuration for the background publisher.
+// PublisherConfig defines behavioral settings for the DefaultPublisher.
 type PublisherConfig struct {
-	// RetryConfig specifies the backoff settings. If nil, production defaults are used.
-	RetryConfig *RetryConfig
-	// Workers is the number of concurrent background goroutines processing events. Defaults to 1.
+	// Workers is the number of concurrent goroutines processing the publish queue.
+	// Defaults to 5.
 	Workers int
-	// BufferSize is the capacity of the internal task channel. Defaults to 100.
+	// BufferSize is the capacity of the internal task channel.
+	// Defaults to 100.
 	BufferSize int
+	// RetryConfig determines the backoff behavior for transient failures.
+	RetryConfig *RetryConfig
+	// DLQFallbackHandler is an optional hook to handle events that failed DLQ delivery.
+	// If nil, failures will be logged to the standard logger.
+	DLQFallbackHandler DLQFallbackHandler
 }
 
 type publishTask struct {
@@ -46,13 +41,14 @@ type publishTask struct {
 //   - Dead Letter Queue (DLQ): Automatically routes events to failure topics after all retries are exhausted.
 //   - Thread Safe: Safely snapshots event state to allow concurrent modification of the original event by the caller.
 type DefaultPublisher struct {
-	router      Router
-	brokers     map[string]Broker
-	retryConfig *RetryConfig
-	taskChan    chan publishTask
-	wg          sync.WaitGroup
-	cancel      context.CancelFunc
-	closeOnce   sync.Once
+	router             Router
+	brokers            map[string]Broker
+	retryConfig        *RetryConfig
+	taskChan           chan publishTask
+	wg                 sync.WaitGroup
+	cancel             context.CancelFunc
+	closeOnce          sync.Once
+	dlqFallbackHandler DLQFallbackHandler
 }
 
 // NewPublisher creates and initializes a DefaultPublisher with the specified router, brokers, and config.
@@ -64,13 +60,17 @@ type DefaultPublisher struct {
 //	    Workers: 10,
 //	    BufferSize: 1000,
 //	    RetryConfig: &event.RetryConfig{
-//	        InitialInterval: 100 * time.Millisecond,
+//	        InitialInterval: 500 * time.Millisecond,
 //	        MaxElapsedTime:  30 * time.Second,
+//	    },
+//	    DLQFallbackHandler: func(ctx context.Context, evt *event.Event, err error) {
+//	        log.Printf("CRITICAL: Failed to write to DLQ: %v. Event: %s", err, evt.EventId)
 //	    },
 //	}
 //	pub := event.NewPublisher(router, brokers, config)
 //	defer pub.Close()
-func NewPublisher(router Router, brokers map[string]Broker, cfg *PublisherConfig) *DefaultPublisher {
+func NewPublisher(router Router, brokers map[string]Broker, config *PublisherConfig) *DefaultPublisher {
+	cfg := config
 	if cfg == nil {
 		cfg = &PublisherConfig{}
 	}
@@ -82,19 +82,28 @@ func NewPublisher(router Router, brokers map[string]Broker, cfg *PublisherConfig
 		}
 	}
 	if cfg.Workers <= 0 {
-		cfg.Workers = 1
+		cfg.Workers = 5
 	}
 	if cfg.BufferSize <= 0 {
 		cfg.BufferSize = 100
 	}
 
+	fallback := cfg.DLQFallbackHandler
+	if fallback == nil {
+		fallback = func(ctx context.Context, evt *Event, dlqErr error) {
+			log.Printf("[EventLib] CRITICAL: Unreachable DLQ for event %s (Type: %s). Final error: %v",
+				evt.EventId, evt.EventType, dlqErr)
+		}
+	}
+
 	ctx, cancel := context.WithCancel(context.Background())
 	p := &DefaultPublisher{
-		router:      router,
-		brokers:     brokers,
-		retryConfig: cfg.RetryConfig,
-		taskChan:    make(chan publishTask, cfg.BufferSize),
-		cancel:      cancel,
+		router:             router,
+		brokers:            brokers,
+		retryConfig:        cfg.RetryConfig,
+		taskChan:           make(chan publishTask, cfg.BufferSize),
+		cancel:             cancel,
+		dlqFallbackHandler: fallback,
 	}
 
 	for i := 0; i < cfg.Workers; i++ {
@@ -181,7 +190,9 @@ func (p *DefaultPublisher) worker(ctx context.Context) {
 				dlqEvt.Metadata["original_destination"] = topic
 
 				dlqTopic := topic + task.config.GetDLQPostfix()
-				_ = task.broker.Publish(ctx, dlqTopic, &dlqEvt)
+				if err := task.broker.Publish(ctx, dlqTopic, &dlqEvt); err != nil {
+					p.dlqFallbackHandler(ctx, task.evt, err)
+				}
 			}
 		}
 	}

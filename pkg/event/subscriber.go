@@ -16,11 +16,19 @@ import (
 //   - Automatic DLQ: If a registered EventHandler returns an error, the event is automatically enriched with error metadata and moved to the configured Dead Letter Queue.
 //   - Concurrent Consumption: Uses goroutines to consume from multiple topics simultaneously.
 type DefaultSubscriber struct {
-	brokers  map[string]Broker
-	router   Router
-	schema   string
-	handlers map[string]EventHandler
-	mu       sync.RWMutex
+	brokers            map[string]Broker
+	router             Router
+	schema             string
+	handlers           map[string]EventHandler
+	mu                 sync.RWMutex
+	dlqFallbackHandler DLQFallbackHandler
+}
+
+// SubscriberConfig defines behavioral settings for the DefaultSubscriber.
+type SubscriberConfig struct {
+	// DLQFallbackHandler is an optional hook to handle events that failed DLQ delivery.
+	// If nil, failures will be logged to the standard logger.
+	DLQFallbackHandler DLQFallbackHandler
 }
 
 // NewSubscriber creates a new DefaultSubscriber tied to a specific schema.
@@ -37,12 +45,27 @@ type DefaultSubscriber struct {
 //	if err := sub.Start(ctx); err != nil {
 //	    log.Fatal(err)
 //	}
-func NewSubscriber(schema string, router Router, brokers map[string]Broker) *DefaultSubscriber {
+func NewSubscriber(schema string, router Router, brokers map[string]Broker, config *SubscriberConfig) *DefaultSubscriber {
+	cfg := config
+	if cfg == nil {
+		cfg = &SubscriberConfig{}
+	}
+
+	fallback := cfg.DLQFallbackHandler
+	if fallback == nil {
+		fallback = func(ctx context.Context, evt *Event, dlqErr error) {
+			// By default, log critical failure
+			fmt.Printf("[EventLib] CRITICAL: Subscriber failed to write to DLQ for event %s. Error: %v\n",
+				evt.EventId, dlqErr)
+		}
+	}
+
 	return &DefaultSubscriber{
-		brokers:  brokers,
-		router:   router,
-		schema:   schema,
-		handlers: make(map[string]EventHandler),
+		brokers:            brokers,
+		router:             router,
+		schema:             schema,
+		handlers:           make(map[string]EventHandler),
+		dlqFallbackHandler: fallback,
 	}
 }
 
@@ -104,7 +127,9 @@ func (s *DefaultSubscriber) Start(ctx context.Context) error {
 						dlqEvt.Metadata["original_destination"] = topic
 
 						dlqTopic := topic + cfg.GetDLQPostfix()
-						_ = brk.Publish(ctx, dlqTopic, &dlqEvt)
+						if err := brk.Publish(ctx, dlqTopic, &dlqEvt); err != nil {
+							s.dlqFallbackHandler(ctx, evt, err)
+						}
 						return fmt.Errorf("handler failed: %w", err)
 					}
 

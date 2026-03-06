@@ -35,7 +35,7 @@ func main() {
 	}
 
 	// 3. Setup the Subscriber
-	sub := event.NewSubscriber("user_domain", router, brokers)
+	sub := event.NewSubscriber("user_domain", router, brokers, nil)
 
 	// Register a handler for the "user.registered" event
 	sub.Subscribe("user.registered", func(ctx context.Context, evt *event.Event) error {

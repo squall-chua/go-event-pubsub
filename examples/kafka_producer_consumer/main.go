@@ -46,7 +46,7 @@ func main() {
 	}
 
 	// 3. Setup the Subscriber
-	sub := event.NewSubscriber("order_domain", router, brokers)
+	sub := event.NewSubscriber("order_domain", router, brokers, nil)
 	sub.Subscribe("order.created", func(ctx context.Context, evt *event.Event) error {
 		fmt.Printf("[Consumer] Processing Order: %v\n", evt.Data)
 		return nil

@@ -56,6 +56,40 @@ registry := event.SchemaRegistry{
 router := event.NewStaticRouter(registry)
 ```
 
+#### Loading from YAML
+The registry is compatible with standard YAML/JSON tags.
+
+**config.yaml**:
+```yaml
+order_domain:
+  order.created:
+    queue_type: "kafka"
+    destinations: ["prod.orders.created"]
+    dlq_postfix: ".failed"
+```
+
+**Go**:
+```go
+import "gopkg.in/yaml.v3"
+
+var registry event.SchemaRegistry
+_ = yaml.Unmarshal(yamlData, &registry)
+router := event.NewStaticRouter(registry)
+```
+
+**config.json**:
+```json
+{
+  "order_domain": {
+    "order.created": {
+      "queueType": "kafka",
+      "destinations": ["prod.orders.created"],
+      "dlqPostfix": ".failed"
+    }
+  }
+}
+```
+
 ---
 
 ## Usage Examples
@@ -163,6 +197,58 @@ The DLQ message will have:
 - **Metadata**:
   - `fail_reason`: The error string describing the failure.
   - `original_destination`: Where the event was supposed to go.
+
+### Recovery from DLQ
+The library provides a `DLQProcessor` to help automate the recovery of failed events. It unwraps the original event, strips failure metadata, and republishes it back into the main pipeline.
+
+```go
+processor := event.NewDLQProcessor(broker, pub)
+
+// Process all events from a specific DLQ topic
+err := processor.Process(ctx, "orders-topic.failed", func(evt *event.Event) bool {
+    // Optional filter: only reprocess transient errors
+    reason, _ := evt.Metadata["fail_reason"].(string)
+    return strings.Contains(reason, "connection timeout")
+})
+```
+
+### Unreachable DLQ Fallback
+In extreme cases (e.g., the broker cluster is completely down), even publishing to the DLQ might fail. To prevent data loss, both `PublisherConfig` and `SubscriberConfig` provide a `DLQFallbackHandler` hook.
+
+```go
+// For Publisher
+config := &event.PublisherConfig{
+    DLQFallbackHandler: func(ctx context.Context, evt *event.Event, dlqErr error) {
+        log.Printf("EMERGENCY: Broker down. Event: %s", evt.EventId)
+    },
+}
+
+// For Subscriber
+config := &event.SubscriberConfig{
+    DLQFallbackHandler: func(ctx context.Context, evt *event.Event, dlqErr error) {
+        // Handle failed subscriber DLQ moves here
+    },
+}
+```
+If no handler is provided, the library defaults to logging a highly visible error to standard out.
+---
+
+## Examples
+The library includes several runnable examples under the `examples/` directory:
+
+- [Basic In-Memory](examples/basic_memory/main.go): Simplest loop.
+- [Kafka Integration](examples/kafka_producer_consumer/main.go): Performance tuning and groups.
+- [RabbitMQ Integration](examples/rabbitmq_producer_consumer/main.go): Reliable AMQP usage.
+- [DLQ Diagnostics](examples/dlq_diagnostics/main.go): Failure wrapping and metadata inspection.
+- [DLQ Recovery](examples/dlq_recovery/main.go): Reprocessing events using the `DLQProcessor`.
+- [Publisher Fallback](examples/dlq_fallback/main.go): Emergency handling for unreachable brokers.
+- [Subscriber Fallback](examples/subscriber_dlq_fallback/main.go): Emergency handling for failed DLQ routing during consumption.
+- [Custom Broker](examples/custom_broker/main.go): How to extend the library with your own messaging backend.
+
+To run an example:
+```bash
+go run examples/basic_memory/main.go
+```
 
 ---
 

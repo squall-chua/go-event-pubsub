@@ -32,6 +32,21 @@ type Event struct {
 // Returning an error will trigger the Dead Letter Queue (DLQ) if configured.
 type EventHandler func(ctx context.Context, evt *Event) error
 
+// DLQFallbackHandler is a callback function invoked when a message fails to be delivered
+// even to the Dead Letter Queue (e.g., if the broker is completely unreachable).
+type DLQFallbackHandler func(ctx context.Context, evt *Event, dlqErr error)
+
+// RetryConfig defines the parameters for the exponential backoff retry mechanism.
+// It controls the frequency and duration of retry attempts when publishing to a broker fails.
+type RetryConfig struct {
+	// InitialInterval is the duration to wait before the first retry.
+	InitialInterval time.Duration
+	// MaxInterval is the upper bound on the backoff duration.
+	MaxInterval time.Duration
+	// MaxElapsedTime is the total maximum time to keep retrying before giving up and sending to DLQ.
+	MaxElapsedTime time.Duration
+}
+
 // Publisher is responsible for routing and sending events to one or more destinations.
 // A typical implementation will determine the routing based on a Router and send via a Broker.
 //

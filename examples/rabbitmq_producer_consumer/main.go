@@ -41,7 +41,7 @@ func main() {
 	}
 
 	// 3. Setup the Subscriber
-	sub := event.NewSubscriber("task_domain", router, brokers)
+	sub := event.NewSubscriber("task_domain", router, brokers, nil)
 	sub.Subscribe("task.created", func(ctx context.Context, evt *event.Event) error {
 		fmt.Printf("[Consumer] Received Task: %v\n", evt.Data)
 		return nil
