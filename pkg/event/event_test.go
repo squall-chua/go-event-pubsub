@@ -31,9 +31,9 @@ func TestEventPubSub_Memory(t *testing.T) {
 	}
 
 	// 3. Setup Subscriber
-	sub := event.NewSubscriber("userSchema", router, brokers, nil)
+	sub := event.NewSubscriber(router, brokers, nil)
 	received := make(chan *event.Event, 1)
-	err := sub.Subscribe("user.created", func(ctx context.Context, evt *event.Event) error {
+	err := sub.Subscribe("userSchema", "user.created", func(ctx context.Context, evt *event.Event) error {
 		received <- evt
 		return nil
 	})
@@ -101,8 +101,8 @@ func TestDLQ_Memory(t *testing.T) {
 	}
 
 	// Subscriber that returns error to trigger DLQ
-	sub := event.NewSubscriber("testSchema", router, brokers, nil)
-	_ = sub.Subscribe("test.event", func(ctx context.Context, evt *event.Event) error {
+	sub := event.NewSubscriber(router, brokers, nil)
+	_ = sub.Subscribe("testSchema", "test.event", func(ctx context.Context, evt *event.Event) error {
 		return context.DeadlineExceeded // simulate error
 	})
 

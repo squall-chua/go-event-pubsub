@@ -66,11 +66,11 @@ func main() {
 	}
 
 	// 4. Setup Subscriber with a handler that always fails
-	sub := event.NewSubscriber("auth_domain", router, brokers, &event.SubscriberConfig{
+	sub := event.NewSubscriber(router, brokers, &event.SubscriberConfig{
 		DLQFallbackHandler: fallbackHandler,
 	})
 
-	_ = sub.Subscribe("user.login", func(ctx context.Context, evt *event.Event) error {
+	_ = sub.Subscribe("auth_domain", "user.login", func(ctx context.Context, evt *event.Event) error {
 		fmt.Printf("[Consumer] Received %s, but processing failed!\n", evt.EventId)
 		return errors.New("database is down") // Trigger DLQ
 	})

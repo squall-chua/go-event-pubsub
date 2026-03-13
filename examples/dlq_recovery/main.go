@@ -37,8 +37,8 @@ func main() {
 
 	// 3. Setup a consumer that simulates a transient error for specific events
 	errCount := 0
-	sub := event.NewSubscriber("maintenance_domain", router, brokers, nil)
-	sub.Subscribe("system.update", func(ctx context.Context, evt *event.Event) error {
+	sub := event.NewSubscriber(router, brokers, nil)
+	sub.Subscribe("maintenance_domain", "system.update", func(ctx context.Context, evt *event.Event) error {
 		if errCount < 1 {
 			errCount++
 			fmt.Printf("[Consumer] Simulating transient error for event %s\n", evt.EventId)

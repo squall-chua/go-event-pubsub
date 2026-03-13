@@ -31,8 +31,8 @@ func main() {
 	brokers := map[string]event.Broker{"memory": memBroker}
 
 	// 2. Setup Subscriber with a failing handler
-	sub := event.NewSubscriber("payment_domain", router, brokers, nil)
-	sub.Subscribe("payment.processed", func(ctx context.Context, evt *event.Event) error {
+	sub := event.NewSubscriber(router, brokers, nil)
+	sub.Subscribe("payment_domain", "payment.processed", func(ctx context.Context, evt *event.Event) error {
 		fmt.Println("[Consumer] Received payment. Processing...")
 		return errors.New("database connection lost") // Trigger DLQ
 	})

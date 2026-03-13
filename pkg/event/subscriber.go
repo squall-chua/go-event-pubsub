@@ -8,18 +8,19 @@ import (
 )
 
 // DefaultSubscriber is the standard implementation of the Subscriber interface.
-// It manages the consumption of events for a specific schema, routing them from brokers to registered Go handlers.
+// It manages the consumption of events across one or more schemas, routing them
+// from brokers to registered Go handlers.
 //
 // Key Features:
-//   - Schema Scoped: One subscriber typically handles all event types within a single domain/schema.
-//   - Topic Abstraction: Automatically maps EventTypes to physical topics using the provided Router.
+//   - Multi-Schema: A single subscriber can handle event types from different schemas.
+//   - Topic Abstraction: Automatically maps (schema, eventType) pairs to physical topics using the provided Router.
 //   - Automatic DLQ: If a registered EventHandler returns an error, the event is automatically enriched with error metadata and moved to the configured Dead Letter Queue.
 //   - Concurrent Consumption: Uses goroutines to consume from multiple topics simultaneously.
 type DefaultSubscriber struct {
 	brokers            map[string]Broker
 	router             Router
-	schema             string
-	handlers           map[string]EventHandler
+	// handlers is keyed by schema, then by eventType.
+	handlers           map[string]map[string]EventHandler
 	mu                 sync.RWMutex
 	dlqFallbackHandler DLQFallbackHandler
 }
@@ -31,21 +32,24 @@ type SubscriberConfig struct {
 	DLQFallbackHandler DLQFallbackHandler
 }
 
-// NewSubscriber creates a new DefaultSubscriber tied to a specific schema.
+// NewSubscriber creates a new DefaultSubscriber that can handle events across multiple schemas.
 //
 // Example:
 //
-//	sub := event.NewSubscriber("order_domain", router, brokers)
-//	sub.Subscribe("order.placed", func(ctx context.Context, evt *event.Event) error {
+//	sub := event.NewSubscriber(router, brokers, nil)
+//	sub.Subscribe("order_domain", "order.placed", func(ctx context.Context, evt *event.Event) error {
 //	    order := evt.Data.(*Order)
 //	    return processOrder(order)
+//	})
+//	sub.Subscribe("payment_domain", "payment.completed", func(ctx context.Context, evt *event.Event) error {
+//	    return processPayment(ctx, evt)
 //	})
 //
 //	// Blocks until context cancelled or fatal error
 //	if err := sub.Start(ctx); err != nil {
 //	    log.Fatal(err)
 //	}
-func NewSubscriber(schema string, router Router, brokers map[string]Broker, config *SubscriberConfig) *DefaultSubscriber {
+func NewSubscriber(router Router, brokers map[string]Broker, config *SubscriberConfig) *DefaultSubscriber {
 	cfg := config
 	if cfg == nil {
 		cfg = &SubscriberConfig{}
@@ -63,18 +67,21 @@ func NewSubscriber(schema string, router Router, brokers map[string]Broker, conf
 	return &DefaultSubscriber{
 		brokers:            brokers,
 		router:             router,
-		schema:             schema,
-		handlers:           make(map[string]EventHandler),
+		handlers:           make(map[string]map[string]EventHandler),
 		dlqFallbackHandler: fallback,
 	}
 }
 
-// Subscribe registers an EventHandler for a specific event type.
+// Subscribe registers an EventHandler for a specific (schema, eventType) pair.
+// The same subscriber can register handlers for event types across different schemas.
 // Topic mapping is performed automatically during Start() using the router.
-func (s *DefaultSubscriber) Subscribe(eventType string, handler EventHandler) error {
+func (s *DefaultSubscriber) Subscribe(schema, eventType string, handler EventHandler) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.handlers[eventType] = handler
+	if _, ok := s.handlers[schema]; !ok {
+		s.handlers[schema] = make(map[string]EventHandler)
+	}
+	s.handlers[schema][eventType] = handler
 	return nil
 }
 
@@ -94,51 +101,59 @@ func (s *DefaultSubscriber) Start(ctx context.Context) error {
 	handlers := s.handlers
 	s.mu.RUnlock()
 
+	// Count total (schema, eventType) subscriptions for channel sizing.
+	totalSubscriptions := 0
+	for _, eventHandlers := range handlers {
+		totalSubscriptions += len(eventHandlers)
+	}
+
 	var wg sync.WaitGroup
-	errChan := make(chan error, len(handlers))
+	errChan := make(chan error, totalSubscriptions)
 
-	for eventType, handler := range handlers {
-		config, err := s.router.RouteFor(s.schema, eventType)
-		if err != nil {
-			return fmt.Errorf("failed to route event type %s: %w", eventType, err)
-		}
+	for schema, eventHandlers := range handlers {
+		for eventType, handler := range eventHandlers {
+			config, err := s.router.RouteFor(schema, eventType)
+			if err != nil {
+				return fmt.Errorf("failed to route event type %s (schema: %s): %w", eventType, schema, err)
+			}
 
-		b, ok := s.brokers[config.QueueType]
-		if !ok {
-			return fmt.Errorf("no broker configured for queue type: %s", config.QueueType)
-		}
+			b, ok := s.brokers[config.QueueType]
+			if !ok {
+				return fmt.Errorf("no broker configured for queue type: %s", config.QueueType)
+			}
 
-		for _, topic := range config.Destinations {
-			wg.Add(1)
-			go func(topic string, h EventHandler, brk Broker, cfg *TopicConfig) {
-				defer wg.Done()
+			for _, topic := range config.Destinations {
+				wg.Add(1)
+				go func(topic string, h EventHandler, brk Broker, cfg *TopicConfig) {
+					defer wg.Done()
 
-				err := brk.Consume(ctx, topic, func(evt *Event) error {
-					if err := h(ctx, evt); err != nil {
-						dlqEvt := *evt
-						dlqEvt.EventType = evt.EventType + cfg.GetDLQEventTypePostfix()
-						dlqEvt.EventTime = time.Now().UTC()
-						dlqEvt.Data = evt // Keep original event as data
+					err := brk.Consume(ctx, topic, func(evt *Event) error {
+						if err := h(ctx, evt); err != nil {
+							dlqEvt := *evt
+							dlqEvt.EventType = evt.EventType + cfg.GetDLQEventTypePostfix()
+							dlqEvt.EventTime = time.Now().UTC()
+							dlqEvt.Data = evt // Keep original event as data
 
-						if dlqEvt.Metadata == nil {
-							dlqEvt.Metadata = make(map[string]any)
+							if dlqEvt.Metadata == nil {
+								dlqEvt.Metadata = make(map[string]any)
+							}
+							dlqEvt.Metadata["fail_reason"] = err.Error()
+							dlqEvt.Metadata["original_destination"] = topic
+
+							dlqTopic := topic + cfg.GetDLQPostfix()
+							if err := brk.Publish(ctx, dlqTopic, &dlqEvt); err != nil {
+								s.dlqFallbackHandler(ctx, evt, err)
+							}
+							return fmt.Errorf("handler failed: %w", err)
 						}
-						dlqEvt.Metadata["fail_reason"] = err.Error()
-						dlqEvt.Metadata["original_destination"] = topic
 
-						dlqTopic := topic + cfg.GetDLQPostfix()
-						if err := brk.Publish(ctx, dlqTopic, &dlqEvt); err != nil {
-							s.dlqFallbackHandler(ctx, evt, err)
-						}
-						return fmt.Errorf("handler failed: %w", err)
+						return nil
+					})
+					if err != nil {
+						errChan <- fmt.Errorf("consumer failed on topic %s: %w", topic, err)
 					}
-
-					return nil
-				})
-				if err != nil {
-					errChan <- fmt.Errorf("consumer failed on topic %s: %w", topic, err)
-				}
-			}(topic, handler, b, config)
+				}(topic, handler, b, config)
+			}
 		}
 	}
 
