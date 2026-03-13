@@ -58,6 +58,9 @@ type Publisher interface {
 	// Publish routes the event according to its schema and publishes it.
 	// It is generally non-blocking, enqueuing the event for background delivery.
 	Publish(ctx context.Context, evt *Event) error
+
+	// Close gracefully shuts down the publisher, ensuring all buffered events are delivered.
+	Close() error
 }
 
 // Subscriber is responsible for listening to events on designated topics.
@@ -76,8 +79,10 @@ type Subscriber interface {
 	// A single subscriber can handle event types across different schemas.
 	Subscribe(schema, eventType string, handler EventHandler) error
 
-	// Start begins listening and consuming messages. It blocks until the context is cancelled.
-	Start(ctx context.Context) error
+	// Start begins the consumption loop in the background.
+	// It returns a channel for receiving background runtime errors.
+	// The channel is closed when all consumers have exited.
+	Start(ctx context.Context) (<-chan error, error)
 }
 
 // Broker abstracts the actual messaging backend (Kafka, RabbitMQ, Memory, etc.).

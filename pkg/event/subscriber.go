@@ -49,7 +49,7 @@ type SubscriberConfig struct {
 //	if err := sub.Start(ctx); err != nil {
 //	    log.Fatal(err)
 //	}
-func NewSubscriber(router Router, brokers map[string]Broker, config *SubscriberConfig) *DefaultSubscriber {
+func NewSubscriber(router Router, brokers map[string]Broker, config *SubscriberConfig) Subscriber {
 	cfg := config
 	if cfg == nil {
 		cfg = &SubscriberConfig{}

@@ -217,7 +217,7 @@ import "golang.org/x/sync/errgroup"
 // Create a group and derived context
 g, ctx := errgroup.WithContext(mainCtx)
 
-subs := []*event.DefaultSubscriber{sub1, sub2}
+subs := []event.Subscriber{sub1, sub2}
 
 for _, s := range subs {
     sub := s // capture loop var

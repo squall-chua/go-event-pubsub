@@ -13,7 +13,7 @@ import (
 // PublisherConfig defines behavioral settings for the DefaultPublisher.
 type PublisherConfig struct {
 	// Workers is the number of concurrent goroutines processing the publish queue.
-	// Defaults to 5.
+	// Defaults to 1.
 	Workers int
 	// BufferSize is the capacity of the internal task channel.
 	// Defaults to 100.
@@ -69,7 +69,7 @@ type DefaultPublisher struct {
 //	}
 //	pub := event.NewPublisher(router, brokers, config)
 //	defer pub.Close()
-func NewPublisher(router Router, brokers map[string]Broker, config *PublisherConfig) *DefaultPublisher {
+func NewPublisher(router Router, brokers map[string]Broker, config *PublisherConfig) Publisher {
 	cfg := config
 	if cfg == nil {
 		cfg = &PublisherConfig{}
@@ -82,7 +82,7 @@ func NewPublisher(router Router, brokers map[string]Broker, config *PublisherCon
 		}
 	}
 	if cfg.Workers <= 0 {
-		cfg.Workers = 5
+		cfg.Workers = 1
 	}
 	if cfg.BufferSize <= 0 {
 		cfg.BufferSize = 100

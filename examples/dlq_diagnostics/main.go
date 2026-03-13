@@ -51,9 +51,15 @@ func main() {
 		return nil
 	})
 
-	if _, err := sub.Start(ctx); err != nil {
+	errCh, err := sub.Start(ctx)
+	if err != nil {
 		log.Fatalf("Failed to start subscriber: %v", err)
 	}
+	go func() {
+		for err := range errCh {
+			log.Printf("Subscriber error: %v", err)
+		}
+	}()
 	time.Sleep(100 * time.Millisecond)
 
 	// 4. Publish Event

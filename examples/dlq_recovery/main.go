@@ -47,9 +47,15 @@ func main() {
 		fmt.Printf("[Consumer] Successfully processed event %s after recovery!\n", evt.EventId)
 		return nil
 	})
-	if _, err := sub.Start(ctx); err != nil {
+	errCh, err := sub.Start(ctx)
+	if err != nil {
 		log.Fatalf("Failed to start subscriber: %v", err)
 	}
+	go func() {
+		for err := range errCh {
+			log.Printf("Subscriber error: %v", err)
+		}
+	}()
 
 	// 4. Setup a simple monitor to watch the DLQ
 	dlqTopic := "update-topic.dead"
@@ -73,7 +79,7 @@ func main() {
 	fmt.Println("[Processor] Running recovery for 'transient' failure reasons...")
 
 	// Recover only if reason contains 'transient'
-	err := processor.Process(ctx, dlqTopic, func(evt *event.Event) bool {
+	err = processor.Process(ctx, dlqTopic, func(evt *event.Event) bool {
 		reason, _ := evt.Metadata["fail_reason"].(string)
 		return strings.Contains(reason, "transient")
 	})
