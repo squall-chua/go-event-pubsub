@@ -22,6 +22,7 @@ func main() {
 			"user.registered": {
 				QueueType:    "memory",
 				Destinations: []string{"user-signup-topic"},
+				// DLQPostfix is omitted here, so DLQ is disabled for this event type.
 			},
 		},
 	}

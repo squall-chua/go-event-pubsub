@@ -34,6 +34,7 @@ func TestDLQFallbackHandler(t *testing.T) {
 			"event": {
 				QueueType:    "memory",
 				Destinations: []string{"topic"},
+				DLQPostfix:   event.Ptr(".dlq"),
 			},
 		},
 	}

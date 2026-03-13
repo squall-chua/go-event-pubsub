@@ -38,7 +38,8 @@ func main() {
 			"order.created": {
 				QueueType:    "kafka",
 				Destinations: []string{"orders-topic"},
-				DLQPostfix:   event.Ptr(".failed"), // Automatic DLQ management
+				// DLQPostfix is optional. If specified, failed events go to [destination][postfix]
+				DLQPostfix:   event.Ptr(".failed"), 
 			},
 		},
 	}

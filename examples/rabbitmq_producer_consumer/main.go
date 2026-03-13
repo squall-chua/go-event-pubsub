@@ -30,7 +30,8 @@ func main() {
 			"task.created": {
 				QueueType:    "rabbitmq",
 				Destinations: []string{"tasks-queue"},
-				DLQPostfix:   event.Ptr(".failed"), // Auto-declare tasks-queue.failed
+				// DLQPostfix is optional.
+				DLQPostfix:   event.Ptr(".failed"), 
 			},
 		},
 	}

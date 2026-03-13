@@ -178,6 +178,11 @@ func (p *DefaultPublisher) worker(ctx context.Context) {
 		for _, topic := range task.config.Destinations {
 			err := p.publishWithRetry(ctx, task.broker, topic, task.evt)
 			if err != nil {
+				if task.config.DLQPostfix == nil {
+					log.Printf("[EventLib] WARNING: Event %s (Type: %s) failed delivery and DLQ is disabled. Dropping event. Error: %v",
+						task.evt.EventId, task.evt.EventType, err)
+					continue // Move to next destination or drop if primary delivery failed
+				}
 				dlqEvt := *task.evt
 				dlqEvt.EventType = task.evt.EventType + task.config.GetDLQEventTypePostfix()
 				dlqEvt.EventTime = time.Now().UTC()

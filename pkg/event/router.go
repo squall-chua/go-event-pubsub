@@ -11,16 +11,17 @@ type TopicConfig struct {
 	QueueType string `yaml:"queue_type" json:"queueType"`
 	// Destinations is a list of physical topics or queues where the event will be sent.
 	Destinations []string `yaml:"destinations" json:"destinations"`
-	// DLQPostfix is an optional postfix appended to each destination for failure routing. Defaults to ".dlq".
+	// DLQPostfix is an optional postfix appended to each destination for failure routing.
+	// If not specified, DLQ routing is disabled.
 	DLQPostfix *string `yaml:"dlq_postfix,omitempty" json:"dlqPostfix,omitempty"`
 	// DLQEventTypePostfix is an optional postfix appended to the EventType when moved to DLQ. Defaults to ".failed".
 	DLQEventTypePostfix *string `yaml:"dlq_event_type_postfix,omitempty" json:"dlqEventTypePostfix,omitempty"`
 }
 
-// GetDLQPostfix returns the configured topic postfix or the default ".dlq".
+// GetDLQPostfix returns the configured topic postfix.
 func (t *TopicConfig) GetDLQPostfix() string {
 	if t.DLQPostfix == nil {
-		return ".dlq"
+		return ""
 	}
 	return *t.DLQPostfix
 }

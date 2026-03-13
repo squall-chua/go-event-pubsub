@@ -47,6 +47,7 @@ func main() {
 			"log.message": {
 				QueueType:    "custom-logger",
 				Destinations: []string{"audit-log-stream"},
+				// DLQ is disabled as DLQPostfix is omitted.
 			},
 		},
 	}

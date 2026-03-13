@@ -112,15 +112,21 @@ func (s *DefaultSubscriber) Start(ctx context.Context) (<-chan error, error) {
 	handlers := s.handlers
 	s.mu.RUnlock()
 
-	type consumerJob struct {
-		topic   string
+	type topicEntry struct {
 		handler EventHandler
-		broker  Broker
 		config  *TopicConfig
 	}
 
-	// Validate all routes and brokers upfront before launching any goroutine.
-	var jobs []consumerJob
+	type dispatcherJob struct {
+		topic   string
+		broker  Broker
+		entries map[string]map[string]topicEntry // schema -> eventType -> entry
+	}
+
+	// Group handlers and configs by topic and broker to support multiplexing multiple
+	// event types from the same destination.
+	jobMap := make(map[string]*dispatcherJob)
+
 	for schema, eventHandlers := range handlers {
 		for eventType, handler := range eventHandlers {
 			config, err := s.router.RouteFor(schema, eventType)
@@ -134,28 +140,55 @@ func (s *DefaultSubscriber) Start(ctx context.Context) (<-chan error, error) {
 			}
 
 			for _, topic := range config.Destinations {
-				jobs = append(jobs, consumerJob{
-					topic:   topic,
+				jobKey := config.QueueType + ":" + topic
+				job, ok := jobMap[jobKey]
+				if !ok {
+					job = &dispatcherJob{
+						topic:   topic,
+						broker:  b,
+						entries: make(map[string]map[string]topicEntry),
+					}
+					jobMap[jobKey] = job
+				}
+
+				if _, ok := job.entries[schema]; !ok {
+					job.entries[schema] = make(map[string]topicEntry)
+				}
+				job.entries[schema][eventType] = topicEntry{
 					handler: handler,
-					broker:  b,
 					config:  config,
-				})
+				}
 			}
 		}
 	}
 
-	errChan := make(chan error, len(jobs))
+	errChan := make(chan error, len(jobMap))
 
 	var wg sync.WaitGroup
-	for _, job := range jobs {
+	for _, job := range jobMap {
 		wg.Add(1)
-		go func(j consumerJob) {
+		go func(j *dispatcherJob) {
 			defer wg.Done()
 
 			err := j.broker.Consume(ctx, j.topic, func(evt *Event) error {
-				if err := j.handler(ctx, evt); err != nil {
+				// Multiplex events to the correct specific handler based on schema and event type.
+				schemaHandlers, ok := j.entries[evt.Schema]
+				if !ok {
+					return nil // Ignore events from other schemas sharing the topic
+				}
+
+				entry, ok := schemaHandlers[evt.EventType]
+				if !ok {
+					return nil // Ignore events from other types sharing the topic
+				}
+
+				if err := entry.handler(ctx, evt); err != nil {
+					if entry.config.DLQPostfix == nil {
+						return fmt.Errorf("handler failed (DLQ disabled): %w", err)
+					}
+
 					dlqEvt := *evt
-					dlqEvt.EventType = evt.EventType + j.config.GetDLQEventTypePostfix()
+					dlqEvt.EventType = evt.EventType + entry.config.GetDLQEventTypePostfix()
 					dlqEvt.EventTime = time.Now().UTC()
 					dlqEvt.Data = evt // Keep original event as data
 
@@ -165,7 +198,7 @@ func (s *DefaultSubscriber) Start(ctx context.Context) (<-chan error, error) {
 					dlqEvt.Metadata["fail_reason"] = err.Error()
 					dlqEvt.Metadata["original_destination"] = j.topic
 
-					dlqTopic := j.topic + j.config.GetDLQPostfix()
+					dlqTopic := j.topic + entry.config.GetDLQPostfix()
 					if err := j.broker.Publish(ctx, dlqTopic, &dlqEvt); err != nil {
 						s.dlqFallbackHandler(ctx, evt, err)
 					}

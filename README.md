@@ -49,7 +49,9 @@ registry := event.SchemaRegistry{
         "order.created": {
             QueueType:    "kafka",
             Destinations: []string{"prod.orders.created"},
-            DLQPostfix:   event.Ptr(".failed"), // Physical topic: prod.orders.created.failed
+            // DLQPostfix is optional. If specified, failed events are routed to prod.orders.created.failed
+            // If omitted, DLQ routing is disabled for this event type.
+            DLQPostfix:   event.Ptr(".failed"), 
         },
     },
 }
@@ -65,6 +67,7 @@ order_domain:
   order.created:
     queue_type: "kafka"
     destinations: ["prod.orders.created"]
+    # dlq_postfix: ".failed" # Omit to disable DLQ
     dlq_postfix: ".failed"
 ```
 
@@ -261,9 +264,13 @@ func TestMyLogic(t *testing.T) {
 
 ## Dead Letter Queue (DLQ)
 
-When an event fails (either background delivery retries are exhausted, or a subscriber handler returns an error), the event is wrapped and sent to the configured DLQ topic.
+When an event fails (either background delivery retries are exhausted, or a subscriber handler returns an error), the event is wrapped and sent to the configured DLQ topic **only if `DLQPostfix` is specified in the routing configuration**.
 
-The DLQ message will have:
+If `DLQPostfix` is omitted:
+- **Publishers** will log a warning and drop the event after all retries fail.
+- **Subscribers** will return an error from the internal dispatcher and the event will be dropped (or retried by the broker depending on broker-specific ack settings).
+
+When enabled, the DLQ message will have:
 - **EventType**: Original event type + postfix (e.g., `order.created.failed`).
 - **Data**: The full original event.
 - **Metadata**:
