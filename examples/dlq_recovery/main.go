@@ -47,7 +47,9 @@ func main() {
 		fmt.Printf("[Consumer] Successfully processed event %s after recovery!\n", evt.EventId)
 		return nil
 	})
-	go sub.Start(ctx)
+	if _, err := sub.Start(ctx); err != nil {
+		log.Fatalf("Failed to start subscriber: %v", err)
+	}
 
 	// 4. Setup a simple monitor to watch the DLQ
 	dlqTopic := "update-topic.dead"

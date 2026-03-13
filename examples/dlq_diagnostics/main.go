@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"time"
 
 	"github.com/google/uuid"
@@ -50,7 +51,9 @@ func main() {
 		return nil
 	})
 
-	go sub.Start(ctx)
+	if _, err := sub.Start(ctx); err != nil {
+		log.Fatalf("Failed to start subscriber: %v", err)
+	}
 	time.Sleep(100 * time.Millisecond)
 
 	// 4. Publish Event

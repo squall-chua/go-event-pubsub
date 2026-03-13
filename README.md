@@ -100,13 +100,17 @@ router := event.NewStaticRouter(registry)
 ```go
 import "github.com/squall-chua/go-event-pubsub/pkg/broker/kafka"
 
-kBroker := kafka.NewBroker(kafka.Config{
+kBroker, err := kafka.NewBroker(kafka.Config{
     Brokers: []string{"localhost:9092"},
     Writer: kafka.WriterConfig{ BatchSize: 100 },
 })
+if err != nil {
+    log.Fatal(err) // e.g. no brokers configured
+}
 ```
 
 #### RabbitMQ
+
 ```go
 import "github.com/squall-chua/go-event-pubsub/pkg/broker/rabbitmq"
 
@@ -116,6 +120,7 @@ rBroker, _ := rabbitmq.NewBroker("amqp://guest:guest@localhost:5672/")
 ---
 
 ### Publishing Events
+
 Publishing is non-blocking. Validation happens immediately, but network delivery occurs in the background.
 
 ```go
@@ -153,22 +158,88 @@ if err := pub.Publish(ctx, evt); err != nil {
 ---
 
 ### Subscribing to Events
-Subscribers handle all event types within a specific schema context.
+
+Subscribers handle all event types within a specific schema context. `Start()` is **non-blocking** — it validates routing synchronously, launches consumer goroutines in the background, and returns immediately.
 
 ```go
-sub := event.NewSubscriber("order_domain", router, brokers)
+sub := event.NewSubscriber(router, brokers, nil)
 
 // Register a handler
-sub.Subscribe("order.created", func(ctx context.Context, evt *event.Event) error {
+sub.Subscribe("order_domain", "order.created", func(ctx context.Context, evt *event.Event) error {
     log.Printf("Processing Order: %v", evt.Data)
-    
+
     // Returning an error here automatically triggers the DLQ
     return nil
 })
 
-// Start consumption (blocks until context is cancelled)
-if err := sub.Start(ctx); err != nil {
+// Start is non-blocking: validates config synchronously, runs consumers in the background.
+errCh, err := sub.Start(ctx)
+if err != nil {
+    // Config error: bad routing or missing broker — nothing has been started.
     log.Fatal(err)
+}
+
+// Optionally watch for fatal runtime consumer errors
+go func() {
+    for err := range errCh {
+        log.Printf("subscriber runtime error: %v", err)
+    }
+}()
+```
+
+#### Graceful Shutdown
+
+To wait for all consumer goroutines to finish before exiting, drain the error channel after cancelling the context — it is closed once all goroutines have exited.
+
+```go
+ctx, cancel := context.WithCancel(context.Background())
+errCh, err := sub.Start(ctx)
+if err != nil {
+    log.Fatal(err)
+}
+
+// ... wait for SIGTERM ...
+
+cancel() // propagate shutdown to all consumer goroutines
+
+for err := range errCh { // blocks until all goroutines have exited
+    log.Printf("subscriber error during shutdown: %v", err)
+}
+log.Println("subscriber fully stopped")
+```
+
+##### Multiple Subscribers
+For complex applications with many subscribers, we recommend using `golang.org/x/sync/errgroup`. It provides a unified way to wait for all background tasks and handle fatal errors.
+
+```go
+import "golang.org/x/sync/errgroup"
+
+// Create a group and derived context
+g, ctx := errgroup.WithContext(mainCtx)
+
+subs := []*event.DefaultSubscriber{sub1, sub2}
+
+for _, s := range subs {
+    sub := s // capture loop var
+    g.Go(func() error {
+        errCh, err := sub.Start(ctx)
+        if err != nil {
+            return err
+        }
+
+        // Draining errCh ensures we wait for all internal consumers to finish
+        for err := range errCh {
+            log.Printf("Consumer runtime error: %v", err)
+            // Note: In an errgroup, returning an error here would cancel all other subscribers.
+            // Only return the error if you want a complete system stop.
+        }
+        return nil
+    })
+}
+
+// Blocks until all subscribers have stopped or one returned a fatal error
+if err := g.Wait(); err != nil {
+    log.Printf("System stopped with error: %v", err)
 }
 ```
 
@@ -189,6 +260,7 @@ func TestMyLogic(t *testing.T) {
 ---
 
 ## Dead Letter Queue (DLQ)
+
 When an event fails (either background delivery retries are exhausted, or a subscriber handler returns an error), the event is wrapped and sent to the configured DLQ topic.
 
 The DLQ message will have:
@@ -199,6 +271,7 @@ The DLQ message will have:
   - `original_destination`: Where the event was supposed to go.
 
 ### Recovery from DLQ
+
 The library provides a `DLQProcessor` to help automate the recovery of failed events. It unwraps the original event, strips failure metadata, and republishes it back into the main pipeline.
 
 ```go
@@ -213,6 +286,7 @@ err := processor.Process(ctx, "orders-topic.failed", func(evt *event.Event) bool
 ```
 
 ### Unreachable DLQ Fallback
+
 In extreme cases (e.g., the broker cluster is completely down), even publishing to the DLQ might fail. To prevent data loss, both `PublisherConfig` and `SubscriberConfig` provide a `DLQFallbackHandler` hook.
 
 ```go
@@ -234,6 +308,7 @@ If no handler is provided, the library defaults to logging a highly visible erro
 ---
 
 ## Examples
+
 The library includes several runnable examples under the `examples/` directory:
 
 - [Basic In-Memory](examples/basic_memory/main.go): Simplest loop.

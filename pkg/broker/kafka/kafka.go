@@ -79,16 +79,31 @@ type Broker struct {
 }
 
 // NewBroker initializes a new Kafka broker instance with the provided configuration.
-func NewBroker(cfg Config) *Broker {
+// Returns an error if no broker addresses are provided.
+func NewBroker(cfg Config) (*Broker, error) {
+	if len(cfg.Brokers) == 0 {
+		return nil, fmt.Errorf("kafka: at least one broker address must be configured")
+	}
 	return &Broker{
 		config: cfg,
-	}
+	}, nil
 }
+
 
 // Publish serializes the event to JSON and sends it to the specified Kafka topic.
 // It uses the EventId as the message key to ensure that events for the same resource
 // are routed to the same partition (guaranteeing ordering).
+//
+// Returns an error if the WriterConfig has not been provided (zero-value WriteTimeout
+// with no BatchSize is treated as unconfigured for producer-only validation).
 func (b *Broker) Publish(ctx context.Context, topic string, evt *event.Event) error {
+	if topic == "" {
+		return fmt.Errorf("kafka: topic must not be empty")
+	}
+	if evt == nil {
+		return fmt.Errorf("kafka: event must not be nil")
+	}
+
 	w := &kafka.Writer{
 		Addr:         kafka.TCP(b.config.Brokers...),
 		Topic:        topic,
@@ -127,9 +142,19 @@ func (b *Broker) Publish(ctx context.Context, topic string, evt *event.Event) er
 	return w.WriteMessages(ctx, msg)
 }
 
+
 // Consume subscribes to the specified topic using the configured consumer group.
 // It runs in a background goroutine and dispatches received events to the handler.
+//
+// Returns an error if topic is empty or handler is nil.
 func (b *Broker) Consume(ctx context.Context, topic string, handler func(*event.Event) error) error {
+	if topic == "" {
+		return fmt.Errorf("kafka: topic must not be empty")
+	}
+	if handler == nil {
+		return fmt.Errorf("kafka: handler must not be nil")
+	}
+
 	readerCfg := kafka.ReaderConfig{
 		Brokers:        b.config.Brokers,
 		Topic:          topic,
@@ -173,3 +198,4 @@ func (b *Broker) Consume(ctx context.Context, topic string, handler func(*event.
 
 	return nil
 }
+

@@ -47,9 +47,13 @@ func main() {
 		return nil
 	})
 
+	fmt.Println("[System] Starting RabbitMQ Consumer...")
+	errCh, err := sub.Start(ctx)
+	if err != nil {
+		log.Fatalf("Failed to start subscriber: %v", err)
+	}
 	go func() {
-		fmt.Println("[System] Starting RabbitMQ Consumer...")
-		if err := sub.Start(ctx); err != nil && err != context.Canceled {
+		for err := range errCh {
 			log.Printf("Subscriber error: %v", err)
 		}
 	}()

@@ -85,91 +85,105 @@ func (s *DefaultSubscriber) Subscribe(schema, eventType string, handler EventHan
 	return nil
 }
 
-// Start begins the consumption loop for all subscribed event types.
+// Start begins the consumption loop for all subscribed event types in the background.
 //
-// It resolves routing for each event type, connects to the appropriate brokers, and spawns
-// background goroutines to listen on the physical topics.
+// It validates routing and broker availability synchronously, returning an error immediately
+// if any configuration is invalid. Consumption goroutines are then launched in the background.
 //
-// This method blocks until:
-//  1. The passed context is cancelled (clean exit).
-//  2. An underlying broker consumer fails fatally.
+// The returned channel receives fatal errors from consumer goroutines at runtime.
+// The channel is closed once all consumers have exited (context cancelled or all done).
 //
-// If a handler returns an error, Start() does NOT exit. Instead, it routes the failed event
-// to the Dead Letter Queue (DLQ) and continues consuming.
-func (s *DefaultSubscriber) Start(ctx context.Context) error {
+// If a handler returns an error, it does NOT stop the subscriber. Instead, the failed event
+// is routed to the Dead Letter Queue (DLQ) and consumption continues.
+//
+// Example:
+//
+//	errCh, err := sub.Start(ctx)
+//	if err != nil {
+//	    log.Fatal(err) // config/routing error
+//	}
+//	go func() {
+//	    for err := range errCh {
+//	        log.Printf("subscriber error: %v", err)
+//	    }
+//	}()
+func (s *DefaultSubscriber) Start(ctx context.Context) (<-chan error, error) {
 	s.mu.RLock()
 	handlers := s.handlers
 	s.mu.RUnlock()
 
-	// Count total (schema, eventType) subscriptions for channel sizing.
-	totalSubscriptions := 0
-	for _, eventHandlers := range handlers {
-		totalSubscriptions += len(eventHandlers)
+	type consumerJob struct {
+		topic   string
+		handler EventHandler
+		broker  Broker
+		config  *TopicConfig
 	}
 
-	var wg sync.WaitGroup
-	errChan := make(chan error, totalSubscriptions)
-
+	// Validate all routes and brokers upfront before launching any goroutine.
+	var jobs []consumerJob
 	for schema, eventHandlers := range handlers {
 		for eventType, handler := range eventHandlers {
 			config, err := s.router.RouteFor(schema, eventType)
 			if err != nil {
-				return fmt.Errorf("failed to route event type %s (schema: %s): %w", eventType, schema, err)
+				return nil, fmt.Errorf("failed to route event type %s (schema: %s): %w", eventType, schema, err)
 			}
 
 			b, ok := s.brokers[config.QueueType]
 			if !ok {
-				return fmt.Errorf("no broker configured for queue type: %s", config.QueueType)
+				return nil, fmt.Errorf("no broker configured for queue type: %s", config.QueueType)
 			}
 
 			for _, topic := range config.Destinations {
-				wg.Add(1)
-				go func(topic string, h EventHandler, brk Broker, cfg *TopicConfig) {
-					defer wg.Done()
-
-					err := brk.Consume(ctx, topic, func(evt *Event) error {
-						if err := h(ctx, evt); err != nil {
-							dlqEvt := *evt
-							dlqEvt.EventType = evt.EventType + cfg.GetDLQEventTypePostfix()
-							dlqEvt.EventTime = time.Now().UTC()
-							dlqEvt.Data = evt // Keep original event as data
-
-							if dlqEvt.Metadata == nil {
-								dlqEvt.Metadata = make(map[string]any)
-							}
-							dlqEvt.Metadata["fail_reason"] = err.Error()
-							dlqEvt.Metadata["original_destination"] = topic
-
-							dlqTopic := topic + cfg.GetDLQPostfix()
-							if err := brk.Publish(ctx, dlqTopic, &dlqEvt); err != nil {
-								s.dlqFallbackHandler(ctx, evt, err)
-							}
-							return fmt.Errorf("handler failed: %w", err)
-						}
-
-						return nil
-					})
-					if err != nil {
-						errChan <- fmt.Errorf("consumer failed on topic %s: %w", topic, err)
-					}
-				}(topic, handler, b, config)
+				jobs = append(jobs, consumerJob{
+					topic:   topic,
+					handler: handler,
+					broker:  b,
+					config:  config,
+				})
 			}
 		}
 	}
 
-	// Wait for context cancellation or fatal errors
-	done := make(chan struct{})
+	errChan := make(chan error, len(jobs))
+
+	var wg sync.WaitGroup
+	for _, job := range jobs {
+		wg.Add(1)
+		go func(j consumerJob) {
+			defer wg.Done()
+
+			err := j.broker.Consume(ctx, j.topic, func(evt *Event) error {
+				if err := j.handler(ctx, evt); err != nil {
+					dlqEvt := *evt
+					dlqEvt.EventType = evt.EventType + j.config.GetDLQEventTypePostfix()
+					dlqEvt.EventTime = time.Now().UTC()
+					dlqEvt.Data = evt // Keep original event as data
+
+					if dlqEvt.Metadata == nil {
+						dlqEvt.Metadata = make(map[string]any)
+					}
+					dlqEvt.Metadata["fail_reason"] = err.Error()
+					dlqEvt.Metadata["original_destination"] = j.topic
+
+					dlqTopic := j.topic + j.config.GetDLQPostfix()
+					if err := j.broker.Publish(ctx, dlqTopic, &dlqEvt); err != nil {
+						s.dlqFallbackHandler(ctx, evt, err)
+					}
+					return fmt.Errorf("handler failed: %w", err)
+				}
+				return nil
+			})
+			if err != nil {
+				errChan <- fmt.Errorf("consumer failed on topic %s: %w", j.topic, err)
+			}
+		}(job)
+	}
+
+	// Close errChan once all goroutines finish so range loops terminate.
 	go func() {
 		wg.Wait()
-		close(done)
+		close(errChan)
 	}()
 
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	case err := <-errChan:
-		return err
-	case <-done:
-		return nil
-	}
+	return errChan, nil
 }

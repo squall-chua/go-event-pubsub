@@ -72,8 +72,9 @@ type Publisher interface {
 //	})
 //	sub.Start(ctx)
 type Subscriber interface {
-	// Subscribe registers a callback for a specific event type based on the schema mapping.
-	Subscribe(eventType string, handler EventHandler) error
+	// Subscribe registers a callback for a specific (schema, eventType) pair.
+	// A single subscriber can handle event types across different schemas.
+	Subscribe(schema, eventType string, handler EventHandler) error
 
 	// Start begins listening and consuming messages. It blocks until the context is cancelled.
 	Start(ctx context.Context) error

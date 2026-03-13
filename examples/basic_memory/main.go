@@ -45,14 +45,15 @@ func main() {
 	})
 
 	// Start the subscriber in the background
+	errCh, err := sub.Start(ctx)
+	if err != nil {
+		log.Fatalf("Failed to start subscriber: %v", err)
+	}
 	go func() {
-		if err := sub.Start(ctx); err != nil && err != context.Canceled {
-			log.Fatalf("Subscriber error: %v", err)
+		for err := range errCh {
+			log.Printf("Subscriber error: %v", err)
 		}
 	}()
-
-	// Give the subscriber a bit to start
-	time.Sleep(100 * time.Millisecond)
 
 	// 4. Setup the Publisher
 	pub := event.NewPublisher(router, brokers, &event.PublisherConfig{

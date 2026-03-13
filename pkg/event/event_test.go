@@ -41,9 +41,13 @@ func TestEventPubSub_Memory(t *testing.T) {
 		t.Fatalf("Subscribe failed: %v", err)
 	}
 
+	errCh, startErr := sub.Start(ctx)
+	if startErr != nil {
+		t.Fatalf("Start failed: %v", startErr)
+	}
 	go func() {
-		if err := sub.Start(ctx); err != nil && err != context.Canceled {
-			// t.Errorf here might not be thread safe depending on runner, but fine for local
+		for range errCh {
+			// runtime consumer errors; ignore in this test
 		}
 	}()
 
@@ -116,7 +120,9 @@ func TestDLQ_Memory(t *testing.T) {
 		return nil
 	})
 
-	go sub.Start(ctx)
+	if _, err := sub.Start(ctx); err != nil {
+		t.Fatalf("Start failed: %v", err)
+	}
 	time.Sleep(100 * time.Millisecond)
 
 	pub := event.NewPublisher(router, brokers, &event.PublisherConfig{

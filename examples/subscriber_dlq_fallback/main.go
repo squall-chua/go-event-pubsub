@@ -77,8 +77,12 @@ func main() {
 
 	// 5. Start Subscriber
 	fmt.Println("[System] Starting subscriber...")
+	errCh, err := sub.Start(ctx)
+	if err != nil {
+		log.Fatalf("Failed to start subscriber: %v", err)
+	}
 	go func() {
-		if err := sub.Start(ctx); err != nil && err != context.Canceled {
+		for err := range errCh {
 			log.Printf("Subscriber error: %v", err)
 		}
 	}()

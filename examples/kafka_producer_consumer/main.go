@@ -18,7 +18,7 @@ func main() {
 	brokersList := []string{"localhost:9092"}
 
 	// 1. Setup the Kafka Broker
-	kBroker := kafka.NewBroker(kafka.Config{
+	kBroker, err := kafka.NewBroker(kafka.Config{
 		Brokers: brokersList,
 		Writer: kafka.WriterConfig{
 			BatchSize:    100,
@@ -28,6 +28,9 @@ func main() {
 			GroupID: "example-group",
 		},
 	})
+	if err != nil {
+		log.Fatalf("Failed to create Kafka broker: %v", err)
+	}
 
 	// 2. Setup the Router
 	registry := event.SchemaRegistry{
@@ -52,9 +55,13 @@ func main() {
 		return nil
 	})
 
+	fmt.Println("[System] Starting Kafka Consumer...")
+	errCh, err := sub.Start(ctx)
+	if err != nil {
+		log.Fatalf("Failed to start subscriber: %v", err)
+	}
 	go func() {
-		fmt.Println("[System] Starting Kafka Consumer...")
-		if err := sub.Start(ctx); err != nil && err != context.Canceled {
+		for err := range errCh {
 			log.Printf("Subscriber error (ensure Kafka is running): %v", err)
 		}
 	}()
