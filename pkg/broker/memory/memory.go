@@ -4,7 +4,6 @@ package memory
 
 import (
 	"context"
-	"fmt"
 	"sync"
 
 	"github.com/squall-chua/go-event-pubsub/pkg/event"
@@ -28,34 +27,47 @@ import (
 type Broker struct {
 	mu          sync.RWMutex
 	subscribers map[string][]func(*event.Event) error
+	publishCh   chan publishTask
 }
 
-// NewBroker creates and returns an initialized in-memory broker.
+type publishTask struct {
+	topic string
+	evt   *event.Event
+}
+
+// NewBroker creates and returns an initialized in-memory broker with a background dispatcher.
 func NewBroker() *Broker {
-	return &Broker{
+	b := &Broker{
 		subscribers: make(map[string][]func(*event.Event) error),
+		publishCh:   make(chan publishTask, 1024), // Buffered to handle spikes
+	}
+	go b.dispatchLoop()
+	return b
+}
+
+// Publish enqueues the event for delivery to all registered handlers for the given topic.
+// It is non-blocking to the producer unless the internal buffer is full.
+func (b *Broker) Publish(ctx context.Context, topic string, evt *event.Event) error {
+	select {
+	case b.publishCh <- publishTask{topic: topic, evt: evt}:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
 	}
 }
 
-// Publish iterates through all registered handlers for the given topic and calls them sequentially.
-// It returns an error if any of the handlers fail.
-func (b *Broker) Publish(ctx context.Context, topic string, evt *event.Event) error {
-	b.mu.RLock()
-	handlers, ok := b.subscribers[topic]
-	b.mu.RUnlock()
+func (b *Broker) dispatchLoop() {
+	for task := range b.publishCh {
+		b.mu.RLock()
+		handlers := b.subscribers[task.topic]
+		b.mu.RUnlock()
 
-	if !ok {
-		return nil // No subscribers, message dropped
-	}
-
-	for _, handler := range handlers {
-		if err := handler(evt); err != nil {
-			// In memory, we just return the first error for simplicity or log it
-			return fmt.Errorf("handler error on topic %s: %w", topic, err)
+		for _, handler := range handlers {
+			go func(h func(*event.Event) error, e *event.Event) {
+				_ = h(e)
+			}(handler, task.evt)
 		}
 	}
-
-	return nil
 }
 
 // Consume adds a handler function to the list of listeners for the specified topic.
