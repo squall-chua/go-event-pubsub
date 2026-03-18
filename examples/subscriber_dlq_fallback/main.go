@@ -42,9 +42,11 @@ func main() {
 	// 1. Setup Router
 	registry := event.SchemaRegistry{
 		"auth_domain": {
-			"user.login": {
-				QueueType:    "memory",
-				Destinations: []string{"login-topic"},
+			Events: map[string]event.TopicConfig{
+				"user.login": {
+					QueueType:    "memory",
+					Destinations: []string{"login-topic"},
+				},
 			},
 		},
 	}

@@ -27,11 +27,13 @@ func main() {
 	// We'll map "task.created" events to a topic named "tasks-queue".
 	registry := event.SchemaRegistry{
 		"task_domain": {
-			"task.created": {
-				QueueType:    "rabbitmq",
-				Destinations: []string{"tasks-queue"},
-				// DLQPostfix is optional.
-				DLQPostfix:   event.Ptr(".failed"), 
+			Events: map[string]event.TopicConfig{
+				"task.created": {
+					QueueType:    "rabbitmq",
+					Destinations: []string{"tasks-queue"},
+					// DLQPostfix is optional.
+					DLQPostfix:   event.Ptr(".failed"), 
+				},
 			},
 		},
 	}

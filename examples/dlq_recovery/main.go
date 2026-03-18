@@ -19,10 +19,12 @@ func main() {
 	// 1. Setup Router with DLQ
 	registry := event.SchemaRegistry{
 		"maintenance_domain": {
-			"system.update": {
-				QueueType:    "memory",
-				Destinations: []string{"update-topic"},
-				DLQPostfix:   event.Ptr(".dead"),
+			Events: map[string]event.TopicConfig{
+				"system.update": {
+					QueueType:    "memory",
+					Destinations: []string{"update-topic"},
+					DLQPostfix:   event.Ptr(".dead"),
+				},
 			},
 		},
 	}

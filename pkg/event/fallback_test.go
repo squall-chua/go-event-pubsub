@@ -31,10 +31,12 @@ func TestDLQFallbackHandler(t *testing.T) {
 
 	registry := event.SchemaRegistry{
 		"test": {
-			"event": {
-				QueueType:    "memory",
-				Destinations: []string{"topic"},
-				DLQPostfix:   event.Ptr(".dlq"),
+			Events: map[string]event.TopicConfig{
+				"event": {
+					QueueType:    "memory",
+					Destinations: []string{"topic"},
+					DLQPostfix:   event.Ptr(".dlq"),
+				},
 			},
 		},
 	}

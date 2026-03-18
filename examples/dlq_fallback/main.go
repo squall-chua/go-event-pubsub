@@ -33,10 +33,12 @@ func main() {
 	// 1. Setup Router points to a "kafka" broker that will fail.
 	registry := event.SchemaRegistry{
 		"critical_domain": {
-			"data.sync": {
-				QueueType:    "kafka",
-				Destinations: []string{"sync-topic"},
-				DLQPostfix:   event.Ptr(".dead"),
+			Events: map[string]event.TopicConfig{
+				"data.sync": {
+					QueueType:    "kafka",
+					Destinations: []string{"sync-topic"},
+					DLQPostfix:   event.Ptr(".dead"),
+				},
 			},
 		},
 	}

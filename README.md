@@ -46,12 +46,17 @@ The `Router` maps logical events (Schema + EventType) to physical destinations a
 ```go
 registry := event.SchemaRegistry{
     "order_domain": {
-        "order.created": {
-            QueueType:    "kafka",
-            Destinations: []string{"prod.orders.created"},
-            // DLQPostfix is optional. If specified, failed events are routed to prod.orders.created.failed
-            // If omitted, DLQ routing is disabled for this event type.
-            DLQPostfix:   event.Ptr(".failed"), 
+        QueueType:  "kafka",         // Schema-level default
+        DLQPostfix: event.Ptr(".failed"), // Schema-level default
+        Events: map[string]event.TopicConfig{
+            "order.created": {
+                Destinations: []string{"prod.orders.created"},
+                // Inherits QueueType and DLQPostfix
+            },
+            "order.internal": {
+                QueueType:    "memory", // Explicit override
+                Destinations: []string{"internal-logs"},
+            },
         },
     },
 }
@@ -64,11 +69,15 @@ The registry is compatible with standard YAML/JSON tags.
 **config.yaml**:
 ```yaml
 order_domain:
-  order.created:
-    queue_type: "kafka"
-    destinations: ["prod.orders.created"]
-    # dlq_postfix: ".failed" # Omit to disable DLQ
-    dlq_postfix: ".failed"
+  queue_type: "kafka"   # Schema-level default
+  dlq_postfix: ".failed" # Schema-level default
+  events:
+    order.created:
+      destinations: ["prod.orders.created"]
+      # Inherits from schema level
+    order.internal:
+      queue_type: "memory" # Explicit override
+      destinations: ["internal-logs"]
 ```
 
 **Go**:
@@ -84,10 +93,16 @@ router := event.NewStaticRouter(registry)
 ```json
 {
   "order_domain": {
-    "order.created": {
-      "queueType": "kafka",
-      "destinations": ["prod.orders.created"],
-      "dlqPostfix": ".failed"
+    "queueType": "kafka",
+    "dlqPostfix": ".failed",
+    "events": {
+      "order.created": {
+        "destinations": ["prod.orders.created"]
+      },
+      "order.internal": {
+        "queueType": "memory",
+        "destinations": ["internal-logs"]
+      }
     }
   }
 }

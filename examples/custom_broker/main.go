@@ -44,10 +44,12 @@ func main() {
 	// 1. Setup Router and your Custom Broker
 	registry := event.SchemaRegistry{
 		"infra_domain": {
-			"log.message": {
-				QueueType:    "custom-logger",
-				Destinations: []string{"audit-log-stream"},
-				// DLQ is disabled as DLQPostfix is omitted.
+			Events: map[string]event.TopicConfig{
+				"log.message": {
+					QueueType:    "custom-logger",
+					Destinations: []string{"audit-log-stream"},
+					// DLQ is disabled as DLQPostfix is omitted.
+				},
 			},
 		},
 	}

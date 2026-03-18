@@ -35,11 +35,13 @@ func main() {
 	// 2. Setup the Router
 	registry := event.SchemaRegistry{
 		"order_domain": {
-			"order.created": {
-				QueueType:    "kafka",
-				Destinations: []string{"orders-topic"},
-				// DLQPostfix is optional. If specified, failed events go to [destination][postfix]
-				DLQPostfix:   event.Ptr(".failed"), 
+			Events: map[string]event.TopicConfig{
+				"order.created": {
+					QueueType:    "kafka",
+					Destinations: []string{"orders-topic"},
+					// DLQPostfix is optional. If specified, failed events go to [destination][postfix]
+					DLQPostfix:   event.Ptr(".failed"), 
+				},
 			},
 		},
 	}

@@ -18,10 +18,12 @@ func TestDLQProcessor_Process(t *testing.T) {
 	// 1. Setup our mock router and Memory broker
 	registry := event.SchemaRegistry{
 		"testSchema": {
-			"test.event": {
-				QueueType:    "memory",
-				Destinations: []string{"main-topic"},
-				DLQPostfix:   event.Ptr(".dead"),
+			Events: map[string]event.TopicConfig{
+				"test.event": {
+					QueueType:    "memory",
+					Destinations: []string{"main-topic"},
+					DLQPostfix:   event.Ptr(".dead"),
+				},
 			},
 		},
 	}

@@ -16,9 +16,11 @@ func TestEventPubSub_Memory(t *testing.T) {
 	// 1. Setup Router
 	registry := event.SchemaRegistry{
 		"userSchema": {
-			"user.created": {
-				QueueType:    "memory",
-				Destinations: []string{"user-events"},
+			Events: map[string]event.TopicConfig{
+				"user.created": {
+					QueueType:    "memory",
+					Destinations: []string{"user-events"},
+				},
 			},
 		},
 	}
@@ -90,11 +92,13 @@ func TestDLQ_Memory(t *testing.T) {
 
 	registry := event.SchemaRegistry{
 		"testSchema": {
-			"test.event": {
-				QueueType:           "memory",
-				Destinations:        []string{"test-topic"},
-				DLQPostfix:          ptr(".failed"),
-				DLQEventTypePostfix: ptr(".error"), // Custom postfix
+			Events: map[string]event.TopicConfig{
+				"test.event": {
+					QueueType:           "memory",
+					Destinations:        []string{"test-topic"},
+					DLQPostfix:          ptr(".failed"),
+					DLQEventTypePostfix: ptr(".error"), // Custom postfix
+				},
 			},
 		},
 	}

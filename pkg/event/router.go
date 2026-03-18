@@ -8,11 +8,12 @@ import (
 // TopicConfig defines the routing and delivery behavior for a specific event type.
 type TopicConfig struct {
 	// QueueType identifies the broker to use (e.g., "kafka", "rabbitmq", "memory").
-	QueueType string `yaml:"queue_type" json:"queueType"`
+	// If empty, will use the default from the parent EventSchema.
+	QueueType string `yaml:"queue_type,omitempty" json:"queueType,omitempty"`
 	// Destinations is a list of physical topics or queues where the event will be sent.
 	Destinations []string `yaml:"destinations" json:"destinations"`
 	// DLQPostfix is an optional postfix appended to each destination for failure routing.
-	// If not specified, DLQ routing is disabled.
+	// If nil, and no default is provided in EventSchema, DLQ routing is disabled.
 	DLQPostfix *string `yaml:"dlq_postfix,omitempty" json:"dlqPostfix,omitempty"`
 	// DLQEventTypePostfix is an optional postfix appended to the EventType when moved to DLQ. Defaults to ".failed".
 	DLQEventTypePostfix *string `yaml:"dlq_event_type_postfix,omitempty" json:"dlqEventTypePostfix,omitempty"`
@@ -34,8 +35,15 @@ func (t *TopicConfig) GetDLQEventTypePostfix() string {
 	return *t.DLQEventTypePostfix
 }
 
-// EventSchema defines routing rules for multiple event types within a single schema or domain.
-type EventSchema map[string]TopicConfig
+// EventSchema defines routing rules and defaults for multiple event types within a single schema or domain.
+type EventSchema struct {
+	// QueueType is the default broker for all events in this schema.
+	QueueType string `yaml:"queue_type" json:"queueType"`
+	// DLQPostfix is the default DLQ postfix for all events in this schema.
+	DLQPostfix string `yaml:"dlq_postfix" json:"dlqPostfix"`
+	// Events maps event types to their specific routing configurations.
+	Events map[string]TopicConfig `yaml:"events" json:"events"`
+}
 
 // SchemaRegistry is the top-level collection of all event schemas in the system.
 type SchemaRegistry map[string]EventSchema
@@ -47,19 +55,6 @@ type Router interface {
 }
 
 // StaticRouter is a simple, thread-safe implementation of the Router interface using an in-memory registry.
-//
-// Example:
-//
-//	registry := event.SchemaRegistry{
-//	    "user_domain": {
-//	        "user.created": {
-//	            QueueType:    "kafka",
-//	            Destinations: []string{"prod.users.created"},
-//	            DLQPostfix:   event.Ptr(".failed_messages"),
-//	        },
-//	    },
-//	}
-//	router := event.NewStaticRouter(registry)
 type StaticRouter struct {
 	mu       sync.RWMutex
 	registry SchemaRegistry
@@ -72,7 +67,7 @@ func NewStaticRouter(registry SchemaRegistry) *StaticRouter {
 	}
 }
 
-// RouteFor looks up the routing configuration for the given schema and event type in the internal registry.
+// RouteFor looks up the routing configuration and applies defaults from the schema.
 func (r *StaticRouter) RouteFor(schema, eventType string) (*TopicConfig, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -82,12 +77,21 @@ func (r *StaticRouter) RouteFor(schema, eventType string) (*TopicConfig, error) 
 		return nil, fmt.Errorf("schema %s not found", schema)
 	}
 
-	t, ok := s[eventType]
+	cfg, ok := s.Events[eventType]
 	if !ok {
 		return nil, fmt.Errorf("event type %s not found in schema %s", eventType, schema)
 	}
 
-	return &t, nil
+	// Resolve overrides
+	resolved := cfg
+	if resolved.QueueType == "" {
+		resolved.QueueType = s.QueueType
+	}
+	if resolved.DLQPostfix == nil && s.DLQPostfix != "" {
+		resolved.DLQPostfix = &s.DLQPostfix
+	}
+
+	return &resolved, nil
 }
 
 // Ptr is a helper utility to return a pointer to a string literal.
