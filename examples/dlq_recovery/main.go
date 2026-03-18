@@ -69,6 +69,7 @@ func main() {
 	_ = pub.Publish(ctx, &event.Event{
 		EventId:   evtID,
 		EventType: "system.update",
+		User:      "maintenance_service",
 		Schema:    "maintenance_domain",
 		Data:      "some update payload",
 	})

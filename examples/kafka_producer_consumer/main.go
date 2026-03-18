@@ -84,6 +84,7 @@ func main() {
 		EventId:    uuid.NewString(),
 		EventType:  "order.created",
 		EventTime:  time.Now().UTC(),
+		User:       "user_99",
 		Source:     "checkout-service",
 		Schema:     "order_domain",
 		ResourceID: "order_66",

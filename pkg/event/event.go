@@ -16,6 +16,8 @@ type Event struct {
 	EventType string `json:"eventType"`
 	// EventTime is the UTC timestamp of when the event occurred.
 	EventTime time.Time `json:"eventTime"`
+	// User is the identifier of the user who triggered the event.
+	User string `json:"user"`
 	// Source identifies the service or system that originated the event.
 	Source string `json:"source"`
 	// Schema version or identifier used for routing and validation.

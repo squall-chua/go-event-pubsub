@@ -69,6 +69,7 @@ func main() {
 	evt := &event.Event{
 		EventId:   uuid.NewString(),
 		EventType: "log.message",
+		User:      "admin_user",
 		Schema:    "infra_domain",
 		Data:      "this is handled by a custom broker implementation",
 	}

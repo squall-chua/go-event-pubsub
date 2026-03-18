@@ -27,6 +27,7 @@ func (b *failingBroker) Consume(ctx context.Context, topic string, handler func(
 		evt := &event.Event{
 			EventId:   uuid.NewString(),
 			EventType: "user.login",
+			User:      "user_456",
 			Schema:    "auth_domain",
 			Data:      "some-login-data",
 		}

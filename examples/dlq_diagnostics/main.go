@@ -71,6 +71,7 @@ func main() {
 	evt := &event.Event{
 		EventId:   uuid.NewString(),
 		EventType: "payment.processed",
+		User:      "customer_99",
 		Schema:    "payment_domain",
 		Data:      map[string]any{"amount": 50.0},
 	}

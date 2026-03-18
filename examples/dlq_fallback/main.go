@@ -77,6 +77,7 @@ func main() {
 	evt := &event.Event{
 		EventId:   uuid.NewString(),
 		EventType: "data.sync",
+		User:      "data_sync_service",
 		Schema:    "critical_domain",
 		Data:      "highly important data",
 	}

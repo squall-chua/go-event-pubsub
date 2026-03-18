@@ -67,11 +67,12 @@ func main() {
 	// 5. Publish an Event
 	evt := &event.Event{
 		EventId:   uuid.NewString(),
-		EventType: "user.registered",
+		EventType: "user.registered", // Must match registry
 		EventTime: time.Now().UTC(),
+		User:      "user_123",
 		Source:    "auth-service",
-		Schema:    "user_domain",
-		Data:      map[string]string{"email": "test@example.com"},
+		Schema:    "user_domain", // Must match registry
+		Data:      map[string]any{"email": "test@example.com"},
 	}
 
 	fmt.Printf("[Publisher] Sending event: %s\n", evt.EventId)

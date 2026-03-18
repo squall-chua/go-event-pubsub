@@ -32,6 +32,7 @@ type Event struct {
     EventId    string         `json:"eventId"`    // Unique tracking ID
     EventType  string         `json:"eventType"`  // e.g., "order.created"
     EventTime  time.Time      `json:"eventTime"`  // UTC occurrence time
+    User       string         `json:"user"`       // Triggering user ID
     Source     string         `json:"source"`     // Originating service
     Schema     string         `json:"schema"`     // Routing domain
     ResourceID string         `json:"resourceId"` // Primary entity ID
@@ -163,6 +164,7 @@ defer pub.Close() // Wait for pending tasks before shutdown
 evt := &event.Event{
     EventId:   uuid.NewString(),
     EventType: "order.created",
+    User:      "user_123",
     Schema:    "order_domain",
     Data:      map[string]any{"order_id": "123"},
 }

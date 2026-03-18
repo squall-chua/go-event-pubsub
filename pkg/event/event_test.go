@@ -65,6 +65,7 @@ func TestEventPubSub_Memory(t *testing.T) {
 		EventId:   "evt-123",
 		EventType: "user.created",
 		EventTime: time.Now().UTC(),
+		User:      "user-456",
 		Source:    "test-service",
 		Schema:    "userSchema",
 		Data:      map[string]string{"name": "Alice"},
@@ -80,6 +81,9 @@ func TestEventPubSub_Memory(t *testing.T) {
 	case rcv := <-received:
 		if rcv.EventId != evt.EventId {
 			t.Errorf("expected eventId %s, got %s", evt.EventId, rcv.EventId)
+		}
+		if rcv.User != evt.User {
+			t.Errorf("expected user %s, got %s", evt.User, rcv.User)
 		}
 	case <-ctx.Done():
 		t.Error("timed out waiting for event")
@@ -141,6 +145,7 @@ func TestDLQ_Memory(t *testing.T) {
 	evt := event.Event{
 		EventId:   "evt-dlq",
 		EventType: "test.event",
+		User:      "user-dlq",
 		Schema:    "testSchema",
 	}
 

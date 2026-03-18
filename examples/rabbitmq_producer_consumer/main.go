@@ -76,6 +76,7 @@ func main() {
 		EventId:    uuid.NewString(),
 		EventType:  "task.created",
 		EventTime:  time.Now().UTC(),
+		User:       "user_admin",
 		Source:     "task-service",
 		Schema:     "task_domain",
 		ResourceID: "task_99",
