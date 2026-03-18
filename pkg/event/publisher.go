@@ -137,9 +137,20 @@ func (p *DefaultPublisher) Publish(ctx context.Context, evt *Event) error {
 		return fmt.Errorf("event cannot be nil")
 	}
 
+	if evt.Schema == "" {
+		return fmt.Errorf("event schema is required")
+	}
+	if evt.EventType == "" {
+		return fmt.Errorf("event type is required")
+	}
+
 	config, err := p.router.RouteFor(evt.Schema, evt.EventType)
 	if err != nil {
 		return fmt.Errorf("routing failed: %w", err)
+	}
+
+	if len(config.Destinations) == 0 {
+		return fmt.Errorf("routing failed: no destinations configured for event type %s in schema %s", evt.EventType, evt.Schema)
 	}
 
 	b, ok := p.brokers[config.QueueType]

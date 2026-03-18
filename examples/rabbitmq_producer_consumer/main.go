@@ -26,11 +26,11 @@ func main() {
 	// 2. Setup the Router with a wildcard pattern
 	registry := event.SchemaRegistry{
 		"task_domain": {
+			QueueType:    "rabbitmq",
+			Destinations: []string{"tasks-queue"},
+			DLQPostfix:   ".failed",
 			Events: map[string]event.TopicConfig{
-				"task.*": { // Handle all task-related events
-					QueueType:    "rabbitmq",
-					Destinations: []string{"tasks-queue"},
-					DLQPostfix:   event.Ptr(".failed"),
+				"task.*": { // Inherits from schema defaults
 				},
 			},
 		},

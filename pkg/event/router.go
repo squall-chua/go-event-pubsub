@@ -42,6 +42,10 @@ type EventSchema struct {
 	QueueType string `yaml:"queue_type" json:"queueType"`
 	// DLQPostfix is the default DLQ postfix for all events in this schema.
 	DLQPostfix string `yaml:"dlq_postfix" json:"dlqPostfix"`
+	// DLQEventTypePostfix is the default DLQ event type postfix for all events in this schema.
+	DLQEventTypePostfix string `yaml:"dlq_event_type_postfix" json:"dlqEventTypePostfix"`
+	// Destinations is the default list of targets for all events in this schema.
+	Destinations []string `yaml:"destinations" json:"destinations"`
 	// Events maps event types to their specific routing configurations.
 	Events map[string]TopicConfig `yaml:"events" json:"events"`
 }
@@ -101,8 +105,14 @@ func (r *StaticRouter) RouteFor(schema, eventType string) (*TopicConfig, error) 
 	if resolved.QueueType == "" {
 		resolved.QueueType = s.QueueType
 	}
+	if len(resolved.Destinations) == 0 {
+		resolved.Destinations = s.Destinations
+	}
 	if resolved.DLQPostfix == nil && s.DLQPostfix != "" {
 		resolved.DLQPostfix = &s.DLQPostfix
+	}
+	if resolved.DLQEventTypePostfix == nil && s.DLQEventTypePostfix != "" {
+		resolved.DLQEventTypePostfix = &s.DLQEventTypePostfix
 	}
 
 	return &resolved, nil

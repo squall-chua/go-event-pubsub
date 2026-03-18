@@ -24,11 +24,13 @@ func TestRouter_Inheritance(t *testing.T) {
 			},
 		},
 		"domainB": {
-			QueueType: "brokerB",
+			QueueType:    "brokerB",
+			Destinations: []string{"defaultTopicB"},
 			Events: map[string]event.TopicConfig{
 				"event.noDLQ": {
 					Destinations: []string{"topic3"},
 				},
+				"event.useDefaultDest": {},
 			},
 		},
 	}
@@ -40,6 +42,7 @@ func TestRouter_Inheritance(t *testing.T) {
 		eventType         string
 		expectedQueue     string
 		expectedDLQFix    string
+		expectedDests     []string
 	}{
 		{
 			name:              "full override",
@@ -47,6 +50,7 @@ func TestRouter_Inheritance(t *testing.T) {
 			eventType:         "event.withOverrides",
 			expectedQueue:     "brokerOverride",
 			expectedDLQFix:    ".failedOverride",
+			expectedDests:     []string{"topic1"},
 		},
 		{
 			name:              "use schema defaults",
@@ -54,6 +58,7 @@ func TestRouter_Inheritance(t *testing.T) {
 			eventType:         "event.withDefaults",
 			expectedQueue:     "brokerA",
 			expectedDLQFix:    ".failedA",
+			expectedDests:     []string{"topic2"},
 		},
 		{
 			name:              "no DLQ fallback if not in schema",
@@ -61,6 +66,15 @@ func TestRouter_Inheritance(t *testing.T) {
 			eventType:         "event.noDLQ",
 			expectedQueue:     "brokerB",
 			expectedDLQFix:    "",
+			expectedDests:     []string{"topic3"},
+		},
+		{
+			name:              "use default destinations from schema",
+			schema:            "domainB",
+			eventType:         "event.useDefaultDest",
+			expectedQueue:     "brokerB",
+			expectedDLQFix:    "",
+			expectedDests:     []string{"defaultTopicB"},
 		},
 	}
 
@@ -70,6 +84,7 @@ func TestRouter_Inheritance(t *testing.T) {
 			assert.NoError(t, err)
 			assert.Equal(t, tt.expectedQueue, cfg.QueueType)
 			assert.Equal(t, tt.expectedDLQFix, cfg.GetDLQPostfix())
+			assert.Equal(t, tt.expectedDests, cfg.Destinations)
 		})
 	}
 }

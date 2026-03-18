@@ -35,11 +35,15 @@ func main() {
 	// 2. Setup the Router with a wildcard
 	registry := event.SchemaRegistry{
 		"order_domain": {
+			QueueType:    "kafka",
+			Destinations: []string{"orders-topic"},
+			DLQPostfix:   ".failed",
 			Events: map[string]event.TopicConfig{
-				"order.*": { // Handle all order events in one topic
-					QueueType:    "kafka",
-					Destinations: []string{"orders-topic"},
-					DLQPostfix:   event.Ptr(".failed"),
+				"order.*": { // Inherits Kafka broker, destinations and DLQ from schema
+				},
+				"order.internal": {
+					QueueType:    "memory", // Local override
+					Destinations: []string{"internal-orders"},
 				},
 			},
 		},

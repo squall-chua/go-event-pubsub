@@ -19,10 +19,13 @@ func main() {
 	// The router maps logical events to physical destinations.
 	registry := event.SchemaRegistry{
 		"user_domain": {
+			QueueType:    "memory",
+			Destinations: []string{"user-topic"}, // Schema-level default destinations
 			Events: map[string]event.TopicConfig{
-				"user.*": { // Handle all types under 'user.*' topic
-					QueueType:    "memory",
-					Destinations: []string{"user-topic"},
+				"user.*": { // Inherits QueueType and Destinations from schema
+				},
+				"user.vip.*": { // Handle VIP specifically
+					Destinations: []string{"vip-topic"}, // Override destinations
 				},
 			},
 		},
@@ -57,7 +60,17 @@ func main() {
 	pub := event.NewPublisher(router, brokers, nil)
 	defer pub.Close()
 
-	// 5. Publish different events that match the wildcard
+	// 5. Demonstrate rejection of unregistered event
+	badEvt := &event.Event{
+		EventId:   uuid.NewString(),
+		EventType: "unregistered.event",
+		Schema:    "user_domain",
+	}
+	if err := pub.Publish(ctx, badEvt); err != nil {
+		fmt.Printf("[Publisher] Correctly rejected unregistered event: %v\n", err)
+	}
+
+	// 6. Publish different events that match the wildcard
 	eventsToSend := []string{"user.registered", "user.modified", "user.deleted"}
 
 	for _, et := range eventsToSend {

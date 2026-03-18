@@ -43,21 +43,21 @@ type Event struct {
 ```
 
 ### 2. Routing Configuration
-The `Router` maps logical events (Schema + EventType) to physical destinations and defines their delivery behavior.
+The `Router` maps logical events (Schema + EventType) to physical destinations and defines their delivery behavior. Destinations can be defined at the schema level to provide a default for all events.
 
 ```go
 registry := event.SchemaRegistry{
     "order_domain": {
-        QueueType:  "kafka",         // Schema-level default
-        DLQPostfix: event.Ptr(".failed"), // Schema-level default
+        QueueType:    "kafka",             // Schema-level default broker
+        Destinations: []string{"orders"},  // Schema-level default destinations
+        DLQPostfix:   ".failed",          // Schema-level default DLQ postfix
         Events: map[string]event.TopicConfig{
             "order.created": {
-                Destinations: []string{"prod.orders.created"},
-                // Inherits QueueType and DLQPostfix
+                // Inherits QueueType, Destinations, and DLQPostfix
             },
             "order.internal.*": { // Wildcard for all internal sub-events
                 QueueType:    "memory", // Explicit override
-                Destinations: []string{"internal-logs"},
+                Destinations: []string{"internal-logs"}, // Explicit override
             },
         },
     },
@@ -80,15 +80,15 @@ The registry is compatible with standard YAML/JSON tags.
 **config.yaml**:
 ```yaml
 order_domain:
-  queue_type: "kafka"   # Schema-level default
-  dlq_postfix: ".failed" # Schema-level default
+  queue_type: "kafka"
+  destinations: ["orders"] # Default for all events in this schema
+  dlq_postfix: ".failed"
   events:
     order.created:
-      destinations: ["prod.orders.created"]
-      # Inherits from schema level
+      # Automatically inherits from order_domain
     order.internal:
-      queue_type: "memory" # Explicit override
-      destinations: ["internal-logs"]
+      queue_type: "memory"
+      destinations: ["internal-logs"] # Specific override
 ```
 
 **Go**:
@@ -105,11 +105,10 @@ router := event.NewStaticRouter(registry)
 {
   "order_domain": {
     "queueType": "kafka",
+    "destinations": ["orders"],
     "dlqPostfix": ".failed",
     "events": {
-      "order.created": {
-        "destinations": ["prod.orders.created"]
-      },
+      "order.created": {},
       "order.internal": {
         "queueType": "memory",
         "destinations": ["internal-logs"]
@@ -150,7 +149,7 @@ rBroker, _ := rabbitmq.NewBroker("amqp://guest:guest@localhost:5672/")
 
 ### Publishing Events
 
-Publishing is non-blocking. Validation happens immediately, but network delivery occurs in the background.
+Publishing is non-blocking. **Validation happens immediately during the `Publish` call.** If the event type is not registered in the router, the call will return an error synchronously.
 
 ```go
 // 1. Configure the publisher
@@ -179,9 +178,9 @@ evt := &event.Event{
     Data:      map[string]any{"order_id": "123"},
 }
 
+// Publish returns an error if routing fails (e.g. unregistered EventType)
 if err := pub.Publish(ctx, evt); err != nil {
-    // Initial validation or broker lookup failed
-    log.Fatal(err)
+    log.Printf("Rejected: %v", err)
 }
 ```
 

@@ -19,12 +19,13 @@ func main() {
 	// 1. Setup Router with DLQ configuration
 	registry := event.SchemaRegistry{
 		"payment_domain": {
+			QueueType:           "memory",
+			Destinations:        []string{"payments-topic"},
+			DLQPostfix:          ".dead",   // Physical topic: payments-topic.dead
+			DLQEventTypePostfix: ".failed", // Event type: payment.processed.failed
 			Events: map[string]event.TopicConfig{
 				"payment.processed": {
-					QueueType:           "memory",
-					Destinations:        []string{"payments-topic"},
-					DLQPostfix:          event.Ptr(".dead"),   // Physical topic: payments-topic.dead
-					DLQEventTypePostfix: event.Ptr(".failed"), // Event type: payment.processed.failed
+					// Inherits everything from schema level
 				},
 			},
 		},
