@@ -25,6 +25,7 @@ go get github.com/squall-chua/go-event-pubsub
 ## Core Concepts
 
 ### 1. The Event Struct
+
 Every message in the system is an `Event`. It includes standard fields for correlation and traceability.
 
 ```go
@@ -54,7 +55,7 @@ registry := event.SchemaRegistry{
                 Destinations: []string{"prod.orders.created"},
                 // Inherits QueueType and DLQPostfix
             },
-            "order.internal": {
+            "order.internal.*": { // Wildcard for all internal sub-events
                 QueueType:    "memory", // Explicit override
                 Destinations: []string{"internal-logs"},
             },
@@ -63,6 +64,15 @@ registry := event.SchemaRegistry{
 }
 router := event.NewStaticRouter(registry)
 ```
+
+#### Wildcard Event Types
+
+The `Router` and `Subscriber` support simple prefix-based wildcards using the `*` suffix:
+
+- **Prefix Match**: `domain.*` matches `domain.created`, `domain.deleted`, etc.
+- **Global Match**: `*` matches every event type within the schema.
+
+This is particularly useful for building domain-wide event listeners or routing related events to the same topic without explicit registration for every single subtype.
 
 #### Loading from YAML
 The registry is compatible with standard YAML/JSON tags.
@@ -184,11 +194,9 @@ Subscribers handle all event types within a specific schema context. `Start()` i
 ```go
 sub := event.NewSubscriber(router, brokers, nil)
 
-// Register a handler
-sub.Subscribe("order_domain", "order.created", func(ctx context.Context, evt *event.Event) error {
-    log.Printf("Processing Order: %v", evt.Data)
-
-    // Returning an error here automatically triggers the DLQ
+// Register a handler with a wildcard
+sub.Subscribe("order_domain", "order.*", func(ctx context.Context, evt *event.Event) error {
+    log.Printf("Received %s event for user %s", evt.EventType, evt.User)
     return nil
 })
 

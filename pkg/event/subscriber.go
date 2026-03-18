@@ -3,6 +3,7 @@ package event
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 )
@@ -17,8 +18,8 @@ import (
 //   - Automatic DLQ: If a registered EventHandler returns an error, the event is automatically enriched with error metadata and moved to the configured Dead Letter Queue.
 //   - Concurrent Consumption: Uses goroutines to consume from multiple topics simultaneously.
 type DefaultSubscriber struct {
-	brokers            map[string]Broker
-	router             Router
+	brokers map[string]Broker
+	router  Router
 	// handlers is keyed by schema, then by eventType.
 	handlers           map[string]map[string]EventHandler
 	mu                 sync.RWMutex
@@ -75,6 +76,10 @@ func NewSubscriber(router Router, brokers map[string]Broker, config *SubscriberC
 // Subscribe registers an EventHandler for a specific (schema, eventType) pair.
 // The same subscriber can register handlers for event types across different schemas.
 // Topic mapping is performed automatically during Start() using the router.
+//
+// Wildcards are supported in the eventType:
+//   - "*" matches all events in the schema.
+//   - "prefix-*" matches all events starting with the prefix.
 func (s *DefaultSubscriber) Subscribe(schema, eventType string, handler EventHandler) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -83,6 +88,17 @@ func (s *DefaultSubscriber) Subscribe(schema, eventType string, handler EventHan
 	}
 	s.handlers[schema][eventType] = handler
 	return nil
+}
+
+func (s *DefaultSubscriber) matchEventType(pattern, eventType string) bool {
+	if pattern == "*" {
+		return true
+	}
+	if len(pattern) > 0 && pattern[len(pattern)-1] == '*' {
+		prefix := pattern[:len(pattern)-1]
+		return strings.HasPrefix(eventType, prefix)
+	}
+	return pattern == eventType
 }
 
 // Start begins the consumption loop for all subscribed event types in the background.
@@ -177,33 +193,35 @@ func (s *DefaultSubscriber) Start(ctx context.Context) (<-chan error, error) {
 					return nil // Ignore events from other schemas sharing the topic
 				}
 
-				entry, ok := schemaHandlers[evt.EventType]
-				if !ok {
-					return nil // Ignore events from other types sharing the topic
+				// Check for matching handlers (exact or wildcard)
+				for pattern, entry := range schemaHandlers {
+					if !s.matchEventType(pattern, evt.EventType) {
+						continue
+					}
+					if err := entry.handler(ctx, evt); err != nil {
+						if entry.config.DLQPostfix == nil {
+							return fmt.Errorf("handler failed (DLQ disabled): %w", err)
+						}
+
+						dlqEvt := *evt
+						dlqEvt.EventType = evt.EventType + entry.config.GetDLQEventTypePostfix()
+						dlqEvt.EventTime = time.Now().UTC()
+						dlqEvt.Data = evt // Keep original event as data
+
+						if dlqEvt.Metadata == nil {
+							dlqEvt.Metadata = make(map[string]any)
+						}
+						dlqEvt.Metadata["fail_reason"] = err.Error()
+						dlqEvt.Metadata["original_destination"] = j.topic
+
+						dlqTopic := j.topic + entry.config.GetDLQPostfix()
+						if err := j.broker.Publish(ctx, dlqTopic, &dlqEvt); err != nil {
+							s.dlqFallbackHandler(ctx, evt, err)
+						}
+						return fmt.Errorf("handler failed: %w", err)
+					}
 				}
 
-				if err := entry.handler(ctx, evt); err != nil {
-					if entry.config.DLQPostfix == nil {
-						return fmt.Errorf("handler failed (DLQ disabled): %w", err)
-					}
-
-					dlqEvt := *evt
-					dlqEvt.EventType = evt.EventType + entry.config.GetDLQEventTypePostfix()
-					dlqEvt.EventTime = time.Now().UTC()
-					dlqEvt.Data = evt // Keep original event as data
-
-					if dlqEvt.Metadata == nil {
-						dlqEvt.Metadata = make(map[string]any)
-					}
-					dlqEvt.Metadata["fail_reason"] = err.Error()
-					dlqEvt.Metadata["original_destination"] = j.topic
-
-					dlqTopic := j.topic + entry.config.GetDLQPostfix()
-					if err := j.broker.Publish(ctx, dlqTopic, &dlqEvt); err != nil {
-						s.dlqFallbackHandler(ctx, evt, err)
-					}
-					return fmt.Errorf("handler failed: %w", err)
-				}
 				return nil
 			})
 			if err != nil {

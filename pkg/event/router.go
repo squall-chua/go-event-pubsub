@@ -2,6 +2,7 @@ package event
 
 import (
 	"fmt"
+	"strings"
 	"sync"
 )
 
@@ -77,7 +78,20 @@ func (r *StaticRouter) RouteFor(schema, eventType string) (*TopicConfig, error) 
 		return nil, fmt.Errorf("schema %s not found", schema)
 	}
 
+	// 1. Try exact match
 	cfg, ok := s.Events[eventType]
+	if !ok {
+		// 2. Try wildcard matches
+		// Note: we take the first matching wildcard.
+		for pattern, wildcardCfg := range s.Events {
+			if r.match(pattern, eventType) {
+				cfg = wildcardCfg
+				ok = true
+				break
+			}
+		}
+	}
+
 	if !ok {
 		return nil, fmt.Errorf("event type %s not found in schema %s", eventType, schema)
 	}
@@ -92,6 +106,17 @@ func (r *StaticRouter) RouteFor(schema, eventType string) (*TopicConfig, error) 
 	}
 
 	return &resolved, nil
+}
+
+func (r *StaticRouter) match(pattern, name string) bool {
+	if pattern == "*" {
+		return true
+	}
+	if len(pattern) > 0 && pattern[len(pattern)-1] == '*' {
+		prefix := pattern[:len(pattern)-1]
+		return strings.HasPrefix(name, prefix)
+	}
+	return pattern == name
 }
 
 // Ptr is a helper utility to return a pointer to a string literal.

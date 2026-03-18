@@ -32,15 +32,14 @@ func main() {
 		log.Fatalf("Failed to create Kafka broker: %v", err)
 	}
 
-	// 2. Setup the Router
+	// 2. Setup the Router with a wildcard
 	registry := event.SchemaRegistry{
 		"order_domain": {
 			Events: map[string]event.TopicConfig{
-				"order.created": {
+				"order.*": { // Handle all order events in one topic
 					QueueType:    "kafka",
 					Destinations: []string{"orders-topic"},
-					// DLQPostfix is optional. If specified, failed events go to [destination][postfix]
-					DLQPostfix:   event.Ptr(".failed"), 
+					DLQPostfix:   event.Ptr(".failed"),
 				},
 			},
 		},
@@ -51,10 +50,12 @@ func main() {
 		"kafka": kBroker,
 	}
 
-	// 3. Setup the Subscriber
+	// 3. Setup the Subscriber with wildcard
 	sub := event.NewSubscriber(router, brokers, nil)
-	sub.Subscribe("order_domain", "order.created", func(ctx context.Context, evt *event.Event) error {
-		fmt.Printf("[Consumer] Processing Order: %v\n", evt.Data)
+
+	// Subscribing to order.* will receive order.created
+	sub.Subscribe("order_domain", "order.*", func(ctx context.Context, evt *event.Event) error {
+		fmt.Printf("[Consumer] Processing %s Event: %v\n", evt.EventType, evt.Data)
 		return nil
 	})
 
@@ -79,10 +80,10 @@ func main() {
 	})
 	defer pub.Close()
 
-	// 5. Publish
+	// 5. Publish a specific event that matches the wildcard
 	evt := &event.Event{
 		EventId:    uuid.NewString(),
-		EventType:  "order.created",
+		EventType:  "order.created", // Matches order.*
 		EventTime:  time.Now().UTC(),
 		User:       "user_99",
 		Source:     "checkout-service",

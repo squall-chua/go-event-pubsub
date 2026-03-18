@@ -23,16 +23,14 @@ func main() {
 	}
 	defer rbBroker.Close()
 
-	// 2. Setup the Router
-	// We'll map "task.created" events to a topic named "tasks-queue".
+	// 2. Setup the Router with a wildcard pattern
 	registry := event.SchemaRegistry{
 		"task_domain": {
 			Events: map[string]event.TopicConfig{
-				"task.created": {
+				"task.*": { // Handle all task-related events
 					QueueType:    "rabbitmq",
 					Destinations: []string{"tasks-queue"},
-					// DLQPostfix is optional.
-					DLQPostfix:   event.Ptr(".failed"), 
+					DLQPostfix:   event.Ptr(".failed"),
 				},
 			},
 		},
@@ -43,10 +41,10 @@ func main() {
 		"rabbitmq": rbBroker,
 	}
 
-	// 3. Setup the Subscriber
+	// 3. Setup the Subscriber with wildcard
 	sub := event.NewSubscriber(router, brokers, nil)
-	sub.Subscribe("task_domain", "task.created", func(ctx context.Context, evt *event.Event) error {
-		fmt.Printf("[Consumer] Received Task: %v\n", evt.Data)
+	sub.Subscribe("task_domain", "task.*", func(ctx context.Context, evt *event.Event) error {
+		fmt.Printf("[Consumer] Received %s Event: %v\n", evt.EventType, evt.Data)
 		return nil
 	})
 
@@ -71,10 +69,10 @@ func main() {
 	})
 	defer pub.Close()
 
-	// 5. Publish
+	// 5. Publish a specific event that matches the wildcard
 	evt := &event.Event{
 		EventId:    uuid.NewString(),
-		EventType:  "task.created",
+		EventType:  "task.created", // Matches task.*
 		EventTime:  time.Now().UTC(),
 		User:       "user_admin",
 		Source:     "task-service",
