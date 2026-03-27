@@ -43,6 +43,7 @@ type Event struct {
 ```
 
 ### 2. Routing Configuration
+
 The `Router` maps logical events (Schema + EventType) to physical destinations and defines their delivery behavior. Destinations can be defined at the schema level to provide a default for all events.
 
 ```go
@@ -75,9 +76,11 @@ The `Router` and `Subscriber` support simple prefix-based wildcards using the `*
 This is particularly useful for building domain-wide event listeners or routing related events to the same topic without explicit registration for every single subtype.
 
 #### Loading from YAML
+
 The registry is compatible with standard YAML/JSON tags.
 
 **config.yaml**:
+
 ```yaml
 order_domain:
   queue_type: "kafka"
@@ -92,6 +95,7 @@ order_domain:
 ```
 
 **Go**:
+
 ```go
 import "gopkg.in/yaml.v3"
 
@@ -101,6 +105,7 @@ router := event.NewStaticRouter(registry)
 ```
 
 **config.json**:
+
 ```json
 {
   "order_domain": {
@@ -125,6 +130,7 @@ router := event.NewStaticRouter(registry)
 ### Initializing Brokers
 
 #### Kafka
+
 ```go
 import "github.com/squall-chua/go-event-pubsub/pkg/broker/kafka"
 
@@ -236,6 +242,7 @@ log.Println("subscriber fully stopped")
 ```
 
 ##### Multiple Subscribers
+
 For complex applications with many subscribers, we recommend using `golang.org/x/sync/errgroup`. It provides a unified way to wait for all background tasks and handle fatal errors.
 
 ```go
@@ -273,6 +280,7 @@ if err := g.Wait(); err != nil {
 ---
 
 ### Testing with Memory Broker
+
 The `memory` package provides a blazing-fast, local implementation perfect for unit tests.
 
 ```go
@@ -291,10 +299,12 @@ func TestMyLogic(t *testing.T) {
 When an event fails (either background delivery retries are exhausted, or a subscriber handler returns an error), the event is wrapped and sent to the configured DLQ topic **only if `DLQPostfix` is specified in the routing configuration**.
 
 If `DLQPostfix` is omitted:
+
 - **Publishers** will log a warning and drop the event after all retries fail.
 - **Subscribers** will return an error from the internal dispatcher and the event will be dropped (or retried by the broker depending on broker-specific ack settings).
 
 When enabled, the DLQ message will have:
+
 - **EventType**: Original event type + postfix (e.g., `order.created.failed`).
 - **Data**: The full original event.
 - **Metadata**:
@@ -335,7 +345,8 @@ config := &event.SubscriberConfig{
     },
 }
 ```
-If no handler is provided, the library defaults to logging a highly visible error to standard out.
+
+If no handler is provided, the library defaults to logging a highly visible error to standard out
 ---
 
 ## Examples
@@ -352,11 +363,70 @@ The library includes several runnable examples under the `examples/` directory:
 - [Custom Broker](examples/custom_broker/main.go): How to extend the library with your own messaging backend.
 
 To run an example:
+
 ```bash
 go run examples/basic_memory/main.go
 ```
 
 ---
 
+## Agent Skill
+
+This repository ships an **agent skill** that provides a structured reference for AI coding assistants (e.g. Antigravity, Claude Code, GitHub Copilot Workspace) to reason about and work with this library without re-reading raw source files.
+
+**Location**: [`skills/go-event-pubsub/SKILL.md`](skills/go-event-pubsub/SKILL.md)
+
+### Using the skill in your project
+
+To make the skill immediately available to your AI agent, copy it into your own project's local skills directory:
+
+```bash
+# Create the skills directory in your project (if it doesn't exist)
+mkdir -p <your-project>/.agents/skills/go-event-pubsub
+
+# Copy the skill file
+cp path/to/go-event-pubsub/skills/go-event-pubsub/SKILL.md \
+   <your-project>/.agents/skills/go-event-pubsub/SKILL.md
+```
+
+Most agent runtimes (Antigravity, Claude Code, GitHub Copilot Workspace) auto-discover skill files placed under a `.agents/skills/` directory at the project root. Once copied, your agent can answer questions about this library without requiring any additional configuration.
+
+### What the skill covers
+
+| Section | Contents |
+| --- | --- |
+| Documentation access | How to find the README, `pkg.go.dev` URL, `go doc` commands, examples index |
+| Core concepts | `Event` struct, `SchemaRegistry`, wildcard routing rules |
+| Usage patterns | Publisher setup, publishing, subscriber, graceful shutdown, multi-subscriber with `errgroup` |
+| Testing | In-memory broker patterns for unit tests |
+| DLQ | Trigger conditions, metadata fields, `DLQProcessor` recovery, fallback handler |
+| Custom broker | How to implement the `Broker` interface |
+| Quick reference | Key behaviours table, common error causes and fixes |
+
+### How agents use it
+
+AI agents that support the skill format will automatically discover and load `skills/go-event-pubsub/SKILL.md` when working inside this repository. The skill is triggered by queries such as:
+
+- *"How do I publish an event?"*
+- *"Set up a subscriber with graceful shutdown."*
+- *"How do I test this library without Kafka?"*
+- *"What happens when my subscriber handler returns an error?"*
+
+### Keeping the skill up to date
+
+Update `skills/go-event-pubsub/SKILL.md` in these two situations:
+
+1. **Adding features or changing API behaviour** — update the skill alongside your code changes so agents always reflect the current API.
+2. **Upgrading the library version in a consumer project** — fetch the updated `SKILL.md` from the new release tag and replace the copy in your project's skills directory. Running against a stale skill from an older version can cause agents to suggest outdated patterns or missing APIs.
+
+```bash
+# Example: refresh the skill after upgrading to vX.Y.Z
+curl -sSL https://raw.githubusercontent.com/squall-chua/go-event-pubsub/vX.Y.Z/skills/go-event-pubsub/SKILL.md \
+  -o .agents/skills/go-event-pubsub/SKILL.md
+```
+
+---
+
 ## License
+
 MIT
